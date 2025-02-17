@@ -15,7 +15,7 @@ import os
 import csv
 
 # 常量配置
-NUM_NODES = 101  # 链式网络中的节点数
+NUM_NODES = 102  # 链式网络中的节点数
 SYNC_INTERVAL = 0.03125  # 同步间隔 (31.25 ms)
 PHY_JITTER = 8e-9  # PHY抖动范围 (8 ns)
 CLOCK_GRANULARITY = 8e-9  # 时钟粒度 (8 ns)
@@ -197,7 +197,7 @@ def convert_to_microseconds(time_tuple):
     # 将列表转换为元组并返回
     return tuple(converted_list)
 
-def save_tuple_to_csv(tuple_data, filename='data.csv'):
+def save_tuple_to_csv(tuple_data, filename='data2.csv'):
     # 检查文件是否存在
     file_exists = os.path.isfile(filename)
 
@@ -237,7 +237,7 @@ if __name__ == "__main__":
     network.run_simulation()
 
     # 绘制某一跳的时间误差（例如第 10 跳）
-    for i in range(2,101):
+    for i in range(2,102):
         network.plot_results(hop=i)
     # network.plot_results(hop=2)
     # network.plot_results(hop=10)
