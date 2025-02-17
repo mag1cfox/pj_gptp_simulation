@@ -2,9 +2,11 @@ import heapq
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.ticker import ScalarFormatter
+import os
+import csv
 
 # 常量配置
-NUM_NODES = 102  # 链式网络中的节点数
+NUM_NODES = 100  # 链式网络中的节点数
 SYNC_INTERVAL = 0.03125  # 同步间隔 (31.25 ms)
 PHY_JITTER = 8e-9  # PHY抖动范围 (8 ns)
 CLOCK_GRANULARITY = 8e-9  # 时钟粒度 (8 ns)
@@ -36,6 +38,7 @@ class Clock:
         return self.time
 
     def adjust(self, offset):
+        # 调整本地时钟的偏移
         self.offset += offset
         self.time += offset
 
@@ -63,17 +66,23 @@ class Node:
         # Grandmaster的PHY抖动更小
         phy_jitter = 2e-9 if self.is_grandmaster else PHY_JITTER
 
+        # 接收Sync消息时添加PHY抖动和时钟粒度
         actual_receive_time = sync_time + self.propagation_delay + \
                               np.random.uniform(0, phy_jitter) + \
                               np.random.uniform(0, CLOCK_GRANULARITY)
 
+        # 计算本地时间与主时钟的偏差
         local_time = self.clock.time
         gm_time = sync_time + correction_field
         error = local_time - gm_time
 
+        # 调整本地时钟（通过调整偏移量）
         self.clock.adjust(-error)
+
+        # 记录时间误差（单位为秒）
         self.time_errors.append((self.clock.time, abs(error)))
 
+        # 添加驻留时间并转发Sync消息
         forward_time = actual_receive_time + self.residence_time
         return forward_time
 
@@ -114,26 +123,40 @@ class Network:
             callback(*args)
 
     def send_sync(self, node):
+        # 主节点发送Sync消息
         sync_time = self.current_time
         correction_field = 0.0
         for i in range(1, NUM_NODES):
+            # 消息逐跳传播
             forward_time = self.nodes[i].receive_sync(sync_time, correction_field)
+            # 更新校正字段（包括率比和传播延迟误差）
             correction_field += self.nodes[i].propagation_delay * self.nodes[i].rate_ratio
             sync_time = forward_time
+
+        # 安排下一次Sync消息
         self.schedule_event(self.current_time + SYNC_INTERVAL, self.send_sync, node)
 
     def measure_pdelay(self, node, neighbor):
+        # 测量传播延迟
         node.measure_pdelay(neighbor)
+        # 安排下一次测量
         self.schedule_event(self.current_time + PDELAY_INTERVAL, self.measure_pdelay, node, neighbor)
 
     def plot_results(self, hop):
         node = self.nodes[hop]
         times, errors = zip(*node.time_errors)
+
         times=times[2:]
         errors=errors[2:]
 
+        times_tmp = convert_to_microseconds(times)
+        errors_tmp = convert_to_microseconds(errors)
+
+        errors_new = process_tuple(errors_tmp)
+
         plt.figure(figsize=(12, 6))
-        plt.plot(times, np.array(errors) * 1e6)  # 显示微秒级误差
+        # plt.plot(times, np.array(errors) * 1e6)  # 显示微秒级误差
+        plt.plot(times_tmp, errors_new)  # 显示微秒级误差
         plt.xlabel('Time (s)')
         plt.ylabel('Time Error (μs)')
         plt.title(f'Time Error at Hop {hop}')
@@ -143,14 +166,66 @@ class Network:
         ax = plt.gca()
         ax.yaxis.set_major_formatter(ScalarFormatter(useOffset=False))
 
-
         plt.show()
 
+
+def process_tuple(input_tuple):
+    # 使用列表推导式处理每个元素
+    processed_list = [round(x - 312500.0, 3) for x in input_tuple]
+
+    # 将处理后的列表转换回tuple并返回
+    return tuple(processed_list)
+
+def convert_to_microseconds(time_tuple):
+    # 创建一个新的列表来存储转换后的值
+    converted_list = []
+
+    # 遍历输入元组中的每个元素
+    for time in time_tuple:
+        # 将秒转换为微秒，并保留三位小数
+        microseconds = round(time * 10_000_000, 3)
+        converted_list.append(microseconds)
+
+    # 将列表转换为元组并返回
+    return tuple(converted_list)
+
+def save_tuple_to_csv(tuple_data, filename='data.csv'):
+    # 检查文件是否存在
+    file_exists = os.path.isfile(filename)
+
+    # 读取现有数据（如果文件存在）
+    existing_data = []
+    if file_exists:
+        with open(filename, 'r', newline='') as csvfile:
+            reader = csv.reader(csvfile)
+            existing_data = list(reader)
+
+    # 找到第一个空列
+    column_index = 0
+    if existing_data:
+        max_columns = max(len(row) for row in existing_data)
+        for i in range(max_columns + 1):
+            if all(i >= len(row) or row[i] == '' for row in existing_data):
+                column_index = i
+                break
+
+    # 将 tuple 数据添加到正确的列
+    for i, value in enumerate(tuple_data):
+        row_index = i
+        if row_index >= len(existing_data):
+            existing_data.append([''] * (column_index + 1))
+        while len(existing_data[row_index]) <= column_index:
+            existing_data[row_index].append('')
+        existing_data[row_index][column_index] = value
+
+    # 写入数据到 CSV 文件
+    with open(filename, 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerows(existing_data)
 
 if __name__ == "__main__":
     network = Network()
     network.run_simulation()
-    network.plot_results(1)  # 查看第10跳结果
-    network.plot_results(2)  # 查看第10跳结果
+    network.plot_results(1)  # 查看第1跳结果
     network.plot_results(10)  # 查看第10跳结果
-    network.plot_results(101)  # 查看最后一跳结果
+    network.plot_results(99)  # 查看最后一跳结果
