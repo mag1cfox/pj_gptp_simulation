@@ -1,3 +1,12 @@
+"""
+**************************************
+*  @Author  ：   mag1cfox
+*  @Time    ：   2025/2/17 9:26
+*  @Project :   pj_gptp_simulation
+*  @Description :   main_test1的改进
+*  @FileName:   main_test2.py
+**************************************
+"""
 import heapq
 import numpy as np
 import matplotlib.pyplot as plt
