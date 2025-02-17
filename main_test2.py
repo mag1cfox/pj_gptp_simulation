@@ -11,6 +11,8 @@ import heapq
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.ticker import ScalarFormatter
+import csv
+import os
 
 # 常量配置
 NUM_NODES = 101  # 链式网络中的节点数
@@ -153,6 +155,8 @@ class Network:
         errors_new = process_tuple(errors_tmp)
         print(f"errors_tmp={errors_new}")
 
+        save_tuple_to_csv(errors_new)
+
         plt.figure(figsize=(10, 6))
         # plt.plot(times, errors, label=f'Time Error at Hop {hop}')
         plt.plot(times_tmp, errors_new, label=f'Time Error at Hop {hop}')
@@ -171,7 +175,7 @@ class Network:
 
 def process_tuple(input_tuple):
     # 使用列表推导式处理每个元素
-    processed_list = [round(x - 31250.0, 3) for x in input_tuple]
+    processed_list = [round(x - 312500.0, 3) for x in input_tuple]
 
     # 将处理后的列表转换回tuple并返回
     return tuple(processed_list)
@@ -183,11 +187,45 @@ def convert_to_microseconds(time_tuple):
     # 遍历输入元组中的每个元素
     for time in time_tuple:
         # 将秒转换为微秒，并保留三位小数
-        microseconds = round(time * 1_000_000, 3)
+        microseconds = round(time * 10_000_000, 3)
         converted_list.append(microseconds)
 
     # 将列表转换为元组并返回
     return tuple(converted_list)
+
+def save_tuple_to_csv(tuple_data, filename='data.csv'):
+    # 检查文件是否存在
+    file_exists = os.path.isfile(filename)
+
+    # 读取现有数据（如果文件存在）
+    existing_data = []
+    if file_exists:
+        with open(filename, 'r', newline='') as csvfile:
+            reader = csv.reader(csvfile)
+            existing_data = list(reader)
+
+    # 找到第一个空列
+    column_index = 0
+    if existing_data:
+        max_columns = max(len(row) for row in existing_data)
+        for i in range(max_columns + 1):
+            if all(i >= len(row) or row[i] == '' for row in existing_data):
+                column_index = i
+                break
+
+    # 将 tuple 数据添加到正确的列
+    for i, value in enumerate(tuple_data):
+        row_index = i
+        if row_index >= len(existing_data):
+            existing_data.append([''] * (column_index + 1))
+        while len(existing_data[row_index]) <= column_index:
+            existing_data[row_index].append('')
+        existing_data[row_index][column_index] = value
+
+    # 写入数据到 CSV 文件
+    with open(filename, 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerows(existing_data)
 
 
 if __name__ == "__main__":
@@ -196,6 +234,10 @@ if __name__ == "__main__":
 
     # 绘制某一跳的时间误差（例如第 10 跳）
     # network.plot_results(hop=1)
-    network.plot_results(hop=2)
-    network.plot_results(hop=10)
-    network.plot_results(hop=100)
+    for i in range(2,102):
+        network.plot_results(hop=i)
+        # network.plot_results(hop=2)
+        # network.plot_results(hop=10)
+        # network.plot_results(hop=33)
+        # network.plot_results(hop=50)
+        # network.plot_results(hop=100)

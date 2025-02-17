@@ -1,16 +1,16 @@
 import heapq
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.ticker import ScalarFormatter
 
 # 常量配置
-NUM_NODES = 101  # 链式网络中的节点数
+NUM_NODES = 100  # 链式网络中的节点数
 SYNC_INTERVAL = 0.03125  # 同步间隔 (31.25 ms)
 PHY_JITTER = 8e-9  # PHY抖动范围 (8 ns)
 CLOCK_GRANULARITY = 8e-9  # 时钟粒度 (8 ns)
 MAX_DRIFT_RATE = 10e-6  # 最大漂移率 (±10 ppm)
 SIM_TIME = 100.0  # 仿真总时长 (秒)
 PDELAY_INTERVAL = 1.0  # 传播延迟测量间隔 (1 s)
+DRIFT_RATE_CHANGE = 1e-6  # 漂移率每秒变化范围 [0, 1] ppm/s
 
 
 class Clock:
@@ -20,6 +20,10 @@ class Clock:
         self.time = 0.0  # 本地时间
 
     def update(self, delta_t):
+        # 动态调整漂移率（每秒变化范围为 [0, 1] ppm/s）
+        self.drift_rate += np.random.uniform(-DRIFT_RATE_CHANGE, DRIFT_RATE_CHANGE) * delta_t
+        self.drift_rate = np.clip(self.drift_rate, -MAX_DRIFT_RATE, MAX_DRIFT_RATE)
+
         # 考虑漂移率更新本地时间
         self.time += delta_t * (1 + self.drift_rate)
         return self.time
@@ -135,50 +139,14 @@ class Network:
         node = self.nodes[hop]
         times, errors = zip(*node.time_errors)  # 解压时间和误差
 
-        times = times[2:]
-        errors = errors[2:]
-
-        times_tmp = convert_to_microseconds(times)
-        errors_tmp = convert_to_microseconds(errors)
-
-        errors_new = process_tuple(errors_tmp)
-        print(f"errors_tmp={errors_new}")
-
         plt.figure(figsize=(10, 6))
-        # plt.plot(times, errors, label=f'Time Error at Hop {hop}')
-        plt.plot(times_tmp, errors_new, label=f'Time Error at Hop {hop}')
+        plt.plot(times, errors, label=f'Time Error at Hop {hop}')
         plt.xlabel('Time (s)')
-        plt.ylabel('Time Error (us)')
+        plt.ylabel('Time Error (s)')
         plt.title(f'Time Error vs. Time at Hop {hop}')
         plt.legend()
         plt.grid(True)
-
-        # 使用 ScalarFormatter 来格式化 y 轴
-        ax = plt.gca()
-        ax.yaxis.set_major_formatter(ScalarFormatter(useOffset=False))
-
         plt.show()
-
-
-def process_tuple(input_tuple):
-    # 使用列表推导式处理每个元素
-    processed_list = [round(x - 31250.0, 3) for x in input_tuple]
-
-    # 将处理后的列表转换回tuple并返回
-    return tuple(processed_list)
-
-def convert_to_microseconds(time_tuple):
-    # 创建一个新的列表来存储转换后的值
-    converted_list = []
-
-    # 遍历输入元组中的每个元素
-    for time in time_tuple:
-        # 将秒转换为微秒，并保留三位小数
-        microseconds = round(time * 1_000_000, 3)
-        converted_list.append(microseconds)
-
-    # 将列表转换为元组并返回
-    return tuple(converted_list)
 
 
 if __name__ == "__main__":
@@ -186,7 +154,4 @@ if __name__ == "__main__":
     network.run_simulation()
 
     # 绘制某一跳的时间误差（例如第 10 跳）
-    # network.plot_results(hop=1)
-    network.plot_results(hop=2)
     network.plot_results(hop=10)
-    network.plot_results(hop=100)
