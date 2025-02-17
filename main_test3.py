@@ -1,3 +1,13 @@
+"""
+**************************************
+*  @Author  ：   mag1cfox
+*  @Time    ：   2025/2/17 10:08
+*  @Project :   pj_gptp_simulation
+*  @Description :   继续升级，现在基本上这一版是需要的，至少从画图上得到的结果是需要的。
+*  @FileName:   main_test3.py
+**************************************
+"""
+
 import heapq
 import numpy as np
 import matplotlib.pyplot as plt
