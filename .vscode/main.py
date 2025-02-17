@@ -23,6 +23,11 @@ class Clock:
         self.time += delta_t * (1 + self.drift_rate)
         return self.time
 
+    def adjust(self, offset):
+        # 调整本地时钟的偏移
+        self.offset += offset
+        self.time += offset
+
 
 class Node:
     def __init__(self, node_id):
@@ -47,10 +52,13 @@ class Node:
         # 计算本地时间与主时钟的偏差
         local_time = self.clock.time
         gm_time = sync_time + correction_field
-        self.clock.offset = local_time - gm_time
+        error = local_time - gm_time
 
-        # 更新本地时钟（简单线性调整）
-        self.clock.time = gm_time
+        # 调整本地时钟（通过调整偏移量）
+        self.clock.adjust(-error)
+
+        # 记录时间误差
+        self.time_errors.append((self.clock.time, abs(error)))
 
         # 添加驻留时间并转发Sync消息
         forward_time = actual_receive_time + self.residence_time
@@ -104,11 +112,6 @@ class Network:
         for i in range(1, NUM_NODES):
             # 消息逐跳传播
             forward_time = self.nodes[i].receive_sync(sync_time, correction_field)
-            # 记录当前节点的同步误差
-            error = self.nodes[i].clock.offset
-            self.nodes[i].sync_errors.append(abs(error))
-            # 记录当前节点的时间误差（随时间变化）
-            self.nodes[i].time_errors.append((self.current_time, abs(error)))
             # 更新校正字段（包括率比和传播延迟误差）
             correction_field += self.nodes[i].propagation_delay * self.nodes[i].rate_ratio
             sync_time = forward_time
@@ -130,7 +133,10 @@ class Network:
 
         node = self.nodes[hop]
         times, errors = zip(*node.time_errors)  # 解压时间和误差
-        print(errors)
+        times=times[2:]
+        errors=errors[2:]
+        print(type(times))
+        print(type(errors))
 
         plt.figure(figsize=(10, 6))
         plt.plot(times, errors, label=f'Time Error at Hop {hop}')
@@ -148,4 +154,5 @@ if __name__ == "__main__":
 
     # 绘制某一跳的时间误差（例如第 10 跳）
     network.plot_results(hop=10)
+    network.plot_results(hop=30)
     network.plot_results(hop=100)
