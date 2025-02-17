@@ -1,13 +1,15 @@
+import heapq
 import numpy as np
 import matplotlib.pyplot as plt
 
 # 常量配置
-NUM_NODES = 100  # 链式网络中的节点数
+NUM_NODES = 101  # 链式网络中的节点数
 SYNC_INTERVAL = 0.03125  # 同步间隔 (31.25 ms)
 PHY_JITTER = 8e-9  # PHY抖动范围 (8 ns)
 CLOCK_GRANULARITY = 8e-9  # 时钟粒度 (8 ns)
 MAX_DRIFT_RATE = 10e-6  # 最大漂移率 (±10 ppm)
 SIM_TIME = 100.0  # 仿真总时长 (秒)
+PDELAY_INTERVAL = 1.0  # 传播延迟测量间隔 (1 s)
 
 
 class Clock:
@@ -28,7 +30,13 @@ class Node:
         self.clock = Clock()
         self.residence_time = 1e-3  # 最大驻留时间 (1 ms)
         self.last_sync_time = 0.0
+        self.last_pdelay_time = 0.0
         self.propagation_delay = 50e-9  # 固定传播延迟 (50 ns)
+        self.asymmetry = 0.0  # 链路非对称性 (默认对称)
+        self.rate_ratio = 1.0  # 率比 (初始为1)
+        self.neighbor_rate_ratio = 1.0  # 邻居率比 (初始为1)
+        self.sync_errors = []  # 同步误差记录
+        self.time_errors = []  # 时间误差记录（随时间变化）
 
     def receive_sync(self, sync_time, correction_field):
         # 接收Sync消息时添加PHY抖动和时钟粒度
@@ -48,47 +56,87 @@ class Node:
         forward_time = actual_receive_time + self.residence_time
         return forward_time
 
+    def measure_pdelay(self, neighbor):
+        # 发送Pdelay_Req消息
+        t1 = self.clock.time
+        t2 = neighbor.clock.time + np.random.uniform(0, PHY_JITTER)
+
+        # 发送Pdelay_Resp消息
+        t3 = neighbor.clock.time
+        t4 = self.clock.time + np.random.uniform(0, PHY_JITTER)
+
+        # 计算传播延迟（考虑非对称性）
+        propagation_delay = ((t4 - t1) - self.neighbor_rate_ratio * (t3 - t2)) / 2
+        self.propagation_delay = propagation_delay + self.asymmetry
+
 
 class Network:
     def __init__(self):
         self.nodes = [Node(i) for i in range(NUM_NODES)]
         self.grandmaster = self.nodes[0]
-        self.sync_errors = [[] for _ in range(NUM_NODES)]
+        self.event_queue = []  # 事件队列（用于事件驱动模型）
+        self.current_time = 0.0
+        self.event_counter = 0  # 事件计数器，用于唯一标识事件
+
+    def schedule_event(self, time, callback, *args):
+        # 将事件加入队列，使用事件计数器作为唯一标识符
+        heapq.heappush(self.event_queue, (time, self.event_counter, callback, args))
+        self.event_counter += 1
 
     def run_simulation(self):
-        current_time = 0.0
-        while current_time < SIM_TIME:
-            if current_time - self.grandmaster.last_sync_time >= SYNC_INTERVAL:
-                # 主节点发送Sync消息
-                sync_time = current_time
-                correction_field = 0.0
-                for i in range(1, NUM_NODES):
-                    # 消息逐跳传播
-                    forward_time = self.nodes[i].receive_sync(sync_time, correction_field)
-                    # 记录当前节点的同步误差
-                    error = self.nodes[i].clock.offset
-                    self.sync_errors[i].append(abs(error))
-                    # 更新校正字段（简化为累积传播延迟）
-                    correction_field += self.nodes[i].propagation_delay
-                    sync_time = forward_time
-                self.grandmaster.last_sync_time = current_time
+        # 初始化事件：主节点定期发送Sync消息
+        self.schedule_event(0.0, self.send_sync, self.grandmaster)
 
-            # 时间步进（1 ms精度）
-            current_time += 1e-3
-            for node in self.nodes:
-                node.clock.update(1e-3)
+        # 初始化事件：所有节点定期测量传播延迟
+        for i in range(1, NUM_NODES):
+            self.schedule_event(0.0, self.measure_pdelay, self.nodes[i], self.nodes[i - 1])
 
-    def plot_results(self):
-        # 绘制不同跳数的同步误差
-        avg_errors = [np.mean(errors) if errors else 0 for errors in self.sync_errors]
-        max_errors = [np.max(errors) if errors else 0 for errors in self.sync_errors]
+        # 事件驱动仿真
+        while self.event_queue and self.current_time < SIM_TIME:
+            time, _, callback, args = heapq.heappop(self.event_queue)
+            self.current_time = time
+            callback(*args)
+
+    def send_sync(self, node):
+        # 主节点发送Sync消息
+        sync_time = self.current_time
+        correction_field = 0.0
+        for i in range(1, NUM_NODES):
+            # 消息逐跳传播
+            forward_time = self.nodes[i].receive_sync(sync_time, correction_field)
+            # 记录当前节点的同步误差
+            error = self.nodes[i].clock.offset
+            self.nodes[i].sync_errors.append(abs(error))
+            # 记录当前节点的时间误差（随时间变化）
+            self.nodes[i].time_errors.append((self.current_time, abs(error)))
+            # 更新校正字段（包括率比和传播延迟误差）
+            correction_field += self.nodes[i].propagation_delay * self.nodes[i].rate_ratio
+            sync_time = forward_time
+
+        # 安排下一次Sync消息
+        self.schedule_event(self.current_time + SYNC_INTERVAL, self.send_sync, node)
+
+    def measure_pdelay(self, node, neighbor):
+        # 测量传播延迟
+        node.measure_pdelay(neighbor)
+
+        # 安排下一次测量
+        self.schedule_event(self.current_time + PDELAY_INTERVAL, self.measure_pdelay, node, neighbor)
+
+    def plot_results(self, hop):
+        # 绘制某一跳的时间误差随时间变化
+        if hop < 1 or hop >= NUM_NODES:
+            raise ValueError(f"Invalid hop: {hop}. Must be between 1 and {NUM_NODES - 1}.")
+
+        node = self.nodes[hop]
+        times, errors = zip(*node.time_errors)  # 解压时间和误差
+        print(errors)
 
         plt.figure(figsize=(10, 6))
-        plt.plot(range(NUM_NODES), avg_errors, label='Average Error')
-        plt.plot(range(NUM_NODES), max_errors, label='Max Error')
-        plt.xlabel('Hop Count')
-        plt.ylabel('Synchronization Error (s)')
-        plt.title('IEEE 802.1AS Synchronization Error vs. Hop Count')
+        plt.plot(times, errors, label=f'Time Error at Hop {hop}')
+        plt.xlabel('Time (s)')
+        plt.ylabel('Time Error (s)')
+        plt.title(f'Time Error vs. Time at Hop {hop}')
         plt.legend()
         plt.grid(True)
         plt.show()
@@ -97,4 +145,7 @@ class Network:
 if __name__ == "__main__":
     network = Network()
     network.run_simulation()
-    network.plot_results()
+
+    # 绘制某一跳的时间误差（例如第 10 跳）
+    network.plot_results(hop=10)
+    network.plot_results(hop=100)
