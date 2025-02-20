@@ -34,11 +34,12 @@ def read_column_from_csv(file_path, column_index):
 if __name__ == '__main__':
 
     # 使用示例
-    file_path = r'D:\06_engineering\03_analysis\pj_gptp_simulation\.vscode\data1.csv'  # 替换为你的CSV文件路径
+    # file_path = r'D:\06_engineering\03_analysis\pj_gptp_simulation\.vscode\data5.csv'  # 替换为你的CSV文件路径
+    file_path = r'D:\06_engineering\03_analysis\pj_gptp_simulation\data5.csv'  # 替换为你的CSV文件路径
     column_index = 0  # 第10列的索引是9
     # column_data = read_column_from_csv(file_path, column_index)
 
-    list=[2,3,5,6,11,21,26,51]
+    list=[100,51,29,24,20,24,38,51]
     column_data=[]
     for i in list:
         # print(i)

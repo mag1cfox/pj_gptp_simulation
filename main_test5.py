@@ -16,7 +16,7 @@ import os
 import csv
 
 # 常量配置
-NUM_NODES = 100  # 链式网络中的节点数
+NUM_NODES = 102  # 链式网络中的节点数
 SYNC_INTERVAL = 0.03125  # 同步间隔 (31.25 ms)
 PHY_JITTER = 8e-9  # PHY抖动范围 (8 ns)
 CLOCK_GRANULARITY = 8e-9  # 时钟粒度 (8 ns)
@@ -31,7 +31,7 @@ class Clock:
         self.is_grandmaster = is_grandmaster
         # Grandmaster时钟漂移率设为0且不变化
         if self.is_grandmaster:
-            self.drift_rate = 0.0
+            self.drift_rate = 1.0
         else:
             self.drift_rate = np.random.uniform(-MAX_DRIFT_RATE, MAX_DRIFT_RATE)
         self.offset = 0.0  # 相对于主时钟的偏移
@@ -164,6 +164,8 @@ class Network:
 
         errors_new = process_tuple(errors_tmp)
 
+        save_tuple_to_csv(errors_new, filename='data5.csv')
+
         plt.figure(figsize=(12, 6))
         # plt.plot(times, np.array(errors) * 1e6)  # 显示微秒级误差
         plt.plot(times_tmp, errors_new)  # 显示微秒级误差
@@ -236,6 +238,8 @@ def save_tuple_to_csv(tuple_data, filename='data.csv'):
 if __name__ == "__main__":
     network = Network()
     network.run_simulation()
-    network.plot_results(1)  # 查看第1跳结果
-    network.plot_results(10)  # 查看第10跳结果
-    network.plot_results(99)  # 查看最后一跳结果
+    for i in range(1,100):
+        network.plot_results(i)
+    # network.plot_results(1)  # 查看第1跳结果
+    # network.plot_results(10)  # 查看第10跳结果
+    # network.plot_results(99)  # 查看最后一跳结果

@@ -419,6 +419,8 @@ if __name__ == "__main__":
     network = Network()
     network.run_simulation()
 
+    network.run
+
     # 可视化结果
     network.plot_results()  # Grandmaster自身误差
     # network.plot_results(hop=1)   # 第1跳节点
@@ -426,74 +428,3 @@ if __name__ == "__main__":
     # network.plot_results(hop=32)   # 第1跳节点
     # network.plot_results(hop=50)  # 中间节点
     # network.plot_results(hop=101) # 最后一跳节点
-#
-#
-# def process_tuple(input_tuple):
-#     # 使用列表推导式处理每个元素
-#     processed_list = [round(x - 312500.0, 3) for x in input_tuple]
-#
-#     # 将处理后的列表转换回tuple并返回
-#     return tuple(processed_list)
-#
-# def convert_to_microseconds(time_tuple):
-#     # 创建一个新的列表来存储转换后的值
-#     converted_list = []
-#
-#     # 遍历输入元组中的每个元素
-#     for time in time_tuple:
-#         # 将秒转换为微秒，并保留三位小数
-#         microseconds = round(time * 10_000_000, 3)
-#         converted_list.append(microseconds)
-#
-#     # 将列表转换为元组并返回
-#     return tuple(converted_list)
-#
-# def save_tuple_to_csv(tuple_data, filename='data2.csv'):
-#     # 检查文件是否存在
-#     file_exists = os.path.isfile(filename)
-#
-#     # 读取现有数据（如果文件存在）
-#     existing_data = []
-#     if file_exists:
-#         with open(filename, 'r', newline='') as csvfile:
-#             reader = csv.reader(csvfile)
-#             existing_data = list(reader)
-#
-#     # 找到第一个空列
-#     column_index = 0
-#     if existing_data:
-#         max_columns = max(len(row) for row in existing_data)
-#         for i in range(max_columns + 1):
-#             if all(i >= len(row) or row[i] == '' for row in existing_data):
-#                 column_index = i
-#                 break
-#
-#     # 将 tuple 数据添加到正确的列
-#     for i, value in enumerate(tuple_data):
-#         row_index = i
-#         if row_index >= len(existing_data):
-#             existing_data.append([''] * (column_index + 1))
-#         while len(existing_data[row_index]) <= column_index:
-#             existing_data[row_index].append('')
-#         existing_data[row_index][column_index] = value
-#
-#     # 写入数据到 CSV 文件
-#     with open(filename, 'w', newline='') as csvfile:
-#         writer = csv.writer(csvfile)
-#         writer.writerows(existing_data)
-#
-#
-# if __name__ == "__main__":
-#     network = Network()
-#     network.run_simulation()
-#
-#     # 绘制某一跳的时间误差（例如第 10 跳）
-#     # for i in range(2,102):
-#     #     network.plot_results(hop=i)
-#     # network.plot_results(hop=1)
-#     # network.plot_results(hop=2)
-#     # network.plot_results(hop=10)
-#     # network.plot_results(hop=32)
-#     # network.plot_results(hop=50)
-#     network.plot_results(hop=101)
-#     network.plot_results()
