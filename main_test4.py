@@ -16,7 +16,8 @@ import csv
 
 # 常量配置
 NUM_NODES = 102  # 链式网络中的节点数
-SYNC_INTERVAL = 0.03125  # 同步间隔 (31.25 ms)
+# SYNC_INTERVAL = 0.03125  # 同步间隔 (31.25 ms)
+SYNC_INTERVAL = 1  # 同步间隔 (1s)
 PHY_JITTER = 8e-9  # PHY抖动范围 (8 ns)
 CLOCK_GRANULARITY = 8e-9  # 时钟粒度 (8 ns)
 MAX_DRIFT_RATE = 10e-6  # 最大漂移率 (±10 ppm)
