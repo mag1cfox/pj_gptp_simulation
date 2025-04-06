@@ -210,15 +210,25 @@ class GPTP_Simulator:
             if hop >= len(self.nodes):
                 continue
 
-            err = np.array(self.errors[hop][len(self.errors[hop])//2:])  # 只分析后半段（稳定）
+            # 只分析后半段（稳定）
+            err = np.array(self.errors[hop][len(self.errors[hop]) // 2:])
+
+            # 获取原始误差值（有正负）
+            raw_errors = np.array(self.time_records[hop])
+
             stats[hop] = {
                 'avg': np.mean(err),
                 'max': np.max(err),
+                'min': np.min(raw_errors),  # 最小误差（可能为负值）
+                'abs_min': np.min(np.abs(raw_errors)),  # 绝对值最小误差
+                'abs_max': np.max(np.abs(raw_errors)),  # 绝对值最大误差
                 '99%': np.percentile(err, 99),
                 'std': np.std(err)
             }
         return stats
 
+
+# 在主代码部分修改结果输出
 if __name__ == "__main__":
     np.random.seed(42)  # 固定随机种子以便结果可重现
 
@@ -228,12 +238,14 @@ if __name__ == "__main__":
     results = sim.analyze()
 
     print("\n最终验证结果 (单位: μs)")
-    print("跳数\t平均误差\t最大误差\t99%分位数\t标准差")
-    print("-"*60)
+    print("跳数\t\t平均误差\t\t最大误差\t\t最小误差\t\t|误差|最小\t\t|误差|最大\t\t99%分位数\t\t标准差")
+    print("-" * 80)
     for hop in sorted([1, 10, 30, 50, 100]):
         if hop in results:
-            print(f"{hop}\t{results[hop]['avg']:.3f}\t\t{results[hop]['max']:.3f}\t\t{results[hop]['99%']:.3f}\t\t{results[hop]['std']:.3f}")
-
+            print(f"{hop}\t\t{results[hop]['avg']:.3f}\t\t{results[hop]['max']:.3f}\t\t" +
+                  f"{results[hop]['min']:.3f}\t\t{results[hop]['abs_min']:.3f}\t\t" +
+                  f"{results[hop]['abs_max']:.3f}\t\t{results[hop]['99%']:.3f}\t\t" +
+                  f"{results[hop]['std']:.3f}")
     # 绘制误差曲线
     plt.figure(figsize=(12, 8))
 
