@@ -1,75 +1,92 @@
 """
 **************************************
 *  @Author  ：   mag1cfox
-*  @Time    ：   2025/4/6 21:11
+*  @Time    ：   2025/4/7 0:24
 *  @Project :   pj_gptp_simulation
-*  @Description :   尝试poe的claude 读取论文得到代码
-*  @FileName:   main_20250406_claude.py
+*  @Description :   main_20250406claude 升级
+*  @FileName:   main_20250407claude_v1.py
 **************************************
-"""
-"""
-IEEE 802.1AS时间同步仿真 - 修正版
-实现符合标准的多跳gPTP同步，确保1跳误差≈0.6μs，100跳误差≈2μs
 """
 import numpy as np
 import matplotlib.pyplot as plt
 from collections import defaultdict
 
+# 常量配置
+NUM_NODES = 102  # 链式网络中的节点数
+SYNC_INTERVAL = 0.03125  # 同步间隔 (31.25 ms)
+# SYNC_INTERVAL = 125e-6  # 同步间隔 (125ms)
+# SYNC_INTERVAL = 1  # 同步间隔 (1s)
+PHY_JITTER = 8e-9  # PHY抖动范围 (8 ns)
+CLOCK_GRANULARITY = 8e-9  # 时钟粒度 (8 ns)
+MAX_DRIFT_RATE = 10e-6  # 最大漂移率 (±10 ppm)
+SIM_TIME = 100.0  # 仿真总时长 (秒)
+PDELAY_INTERVAL = 1.0  # 传播延迟测量间隔 (1 s)
+DRIFT_RATE_CHANGE = 1e-6  # 漂移率每秒变化范围 [0, 1] ppm/s
+
+
 class Clock:
-    def __init__(self, node_id):
-        # 初始化时钟参数（单位：秒）
-        self.drift_rate = np.random.uniform(-10, 10) * 1e-6  # ±10ppm时钟漂移
-        self.granularity = 8e-9  # 8ns计时粒度
-        self.physical_time = 0.0  # 实际物理时间
-        self.offset = 0.0  # 对主时钟的偏移量
-        self.rate_ratio = 1.0  # 相对主时钟的频率比
+    def __init__(self):
+        self.drift_rate = np.random.uniform(-MAX_DRIFT_RATE, MAX_DRIFT_RATE)
+        self.offset = 0.0  # 相对于主时钟的偏移
+        self.time = 0.0  # 本地时间
+        self.rate_ratio = 1.0  # 相对于上游时钟的频率比
 
-    def advance(self, duration):
-        """推进时钟物理时间（考虑漂移）"""
-        self.physical_time += duration * (1 + self.drift_rate)
+    def update(self, delta_t):
+        # 动态调整漂移率（每秒变化范围为 [0, 1] ppm/s）
+        self.drift_rate += np.random.uniform(-DRIFT_RATE_CHANGE, DRIFT_RATE_CHANGE) * delta_t
+        self.drift_rate = np.clip(self.drift_rate, -MAX_DRIFT_RATE, MAX_DRIFT_RATE)
 
-    def get_raw_time(self):
-        """获取原始时间戳（带粒度噪声）"""
-        return self.physical_time + np.random.uniform(0, self.granularity)
+        # 考虑漂移率更新本地时间
+        self.time += delta_t * (1 + self.drift_rate)
+        return self.time
+
+    def adjust(self, offset):
+        """调整时钟偏移"""
+        self.offset += offset
 
     def get_time(self):
-        """获取修正后的时间（应用同步修正）"""
-        # 将本地时钟修正为主时钟时间
-        return self.get_raw_time() * self.rate_ratio + self.offset
+        """获取修正后的时间"""
+        return self.time + self.offset
 
-    def correct(self, offset, rate_ratio):
-        """修正时钟参数"""
-        self.offset = offset
-        self.rate_ratio = rate_ratio
+    def get_raw_time(self):
+        """获取原始时间（带噪声）"""
+        return self.time + np.random.uniform(0, CLOCK_GRANULARITY)
 
-class NetworkNode:
+
+class Node:
     def __init__(self, node_id, is_grandmaster=False):
         self.id = node_id
         self.is_grandmaster = is_grandmaster
-        self.clock = Clock(node_id)
+        self.clock = Clock()
 
         # 网络延迟参数
         self.prop_delay = 50e-9  # 50ns固定传播延迟
-        self.phy_jitter = np.random.uniform(0, 8e-9)  # PHY抖动0-8ns
+        self.phy_jitter = np.random.uniform(0, PHY_JITTER)  # PHY抖动
         self.residence_time = min(np.random.exponential(500e-6), 1e-3)  # 驻留时间
 
         # 网络拓扑
         self.upstream = None
         self.downstream = None
 
-        # 频率比测量误差±0.1ppm
-        self.freq_error = np.random.uniform(-0.1e-6, 0.1e-6)
-
-        # 同步状态跟踪
+        # 同步状态
         self.sync_count = 0
         self.last_ratio_update = 0
         self.last_upstream_time = 0
 
+        # 测量误差±0.1ppm
+        self.freq_error = np.random.uniform(-0.1e-6, 0.1e-6)
+
+        # 错误记录
+        self.time_errors = []
+
     def measure_propagation_delay(self):
         """测量链路延迟（PDelay过程）"""
+        if not self.upstream:
+            return 0.0
+
         # 模拟PDelay请求-响应过程
         delay = self.prop_delay + 0.5 * (self.phy_jitter + self.upstream.phy_jitter)
-        # 添加小随机波动模拟实际测量
+        # 添加随机波动模拟实际测量
         return max(delay * (1 + np.random.uniform(-0.05, 0.05)), 1e-9)
 
     def calculate_rate_ratio(self, t1, t2, master_t1, master_t2):
@@ -89,9 +106,7 @@ class NetworkNode:
         # 添加测量误差但限制在合理范围
         noisy_ratio = measured_ratio * (1 + self.freq_error)
 
-        # 限制在合理范围内 (±20ppm)
-        # max_error = 20e-6
-        # max_error = 10e-6
+        # 限制在合理范围内 (±1ppm)
         max_error = 1e-6
         if abs(noisy_ratio - real_ratio) > max_error:
             noisy_ratio = real_ratio + np.sign(noisy_ratio - real_ratio) * max_error
@@ -108,7 +123,7 @@ class NetworkNode:
 
         # 主时钟节点直接返回自身时间
         if self.is_grandmaster:
-            return (gm_time, self.clock.get_raw_time(), (0, 0))
+            return (self.clock.get_time(), self.clock.get_raw_time(), (0, 0))
 
         # 接收同步消息的时间戳（本地时钟）
         recv_ts = self.clock.get_raw_time() + self.phy_jitter
@@ -143,22 +158,23 @@ class NetworkNode:
         local_time = recv_ts
 
         # 时钟偏移计算（考虑频率比）
-        offset = corrected_upstream - (local_time * self.clock.rate_ratio)
+        offset = corrected_upstream - (local_time * self.clock.rate_ratio + self.clock.offset)
 
         # 更新时钟修正参数
-        self.clock.offset = offset
+        self.clock.adjust(offset)
+
+        # 记录同步误差
+        error = self.clock.get_time() - gm_time
+        self.time_errors.append(abs(error * 1e6))  # 转换为μs存储
 
         # 返回更新后的信息
         return (gm_time, self.clock.get_time(), (self.last_ratio_update, last_upstream))
 
+
 class GPTP_Simulator:
-    def __init__(self, hops=100, interval=31.25e-3, duration=60):
-    # 125ms = 0.125秒
-    # def __init__(self, hops=100, interval = 125e-3  , duration=60):
-    # 1s
-    # def __init__(self, hops=100, interval = 1  , duration=60):
+    def __init__(self, hops=100, interval=SYNC_INTERVAL, duration=SIM_TIME):
         self.hops = hops
-        self.interval = interval  # 31.25ms同步间隔
+        self.interval = interval  # 同步间隔
         self.duration = duration
         self.nodes = []
         self.errors = defaultdict(list)
@@ -168,11 +184,11 @@ class GPTP_Simulator:
     def setup_network(self):
         """创建链式网络拓扑"""
         # 创建主时钟节点
-        self.nodes.append(NetworkNode(0, is_grandmaster=True))
+        self.nodes.append(Node(0, is_grandmaster=True))
 
         # 创建级联的从时钟节点
         for i in range(1, self.hops + 1):
-            node = NetworkNode(i)
+            node = Node(i)
             node.upstream = self.nodes[i-1]
             self.nodes[i-1].downstream = node
             self.nodes.append(node)
@@ -180,8 +196,12 @@ class GPTP_Simulator:
     def run(self):
         """运行仿真"""
         steps = int(self.duration / self.interval)
+        time_points = []
 
         for step in range(steps):
+            current_time = step * self.interval
+            time_points.append(current_time)
+
             # 主时钟当前时间
             gm_time = self.nodes[0].clock.get_time()
 
@@ -206,7 +226,9 @@ class GPTP_Simulator:
 
             # 推进所有节点的物理时钟
             for node in self.nodes:
-                node.clock.advance(self.interval)
+                node.clock.update(self.interval)
+
+        return time_points
 
     def analyze(self):
         """分析并输出结果统计"""
@@ -233,15 +255,12 @@ class GPTP_Simulator:
         return stats
 
 
-# 在主代码部分修改结果输出
 if __name__ == "__main__":
-    # np.random.seed(42)  # 固定随机种子以便结果可重现
     np.random.seed(640)  # 固定随机种子以便结果可重现
 
     print("运行IEEE 802.1AS gPTP时间同步仿真...")
-    # sim = GPTP_Simulator(hops=100, duration=100)  # 增加持续时间确保稳定
-    sim = GPTP_Simulator(hops=100, duration=60)  # 增加持续时间确保稳定
-    sim.run()
+    sim = GPTP_Simulator(hops=100, duration=100)  # 设置100跳网络，100秒仿真时间
+    time_points = sim.run()
     results = sim.analyze()
 
     print("\n最终验证结果 (单位: μs)")
@@ -253,6 +272,7 @@ if __name__ == "__main__":
                   f"{results[hop]['min']:.3f}\t\t{results[hop]['abs_min']:.3f}\t\t" +
                   f"{results[hop]['abs_max']:.3f}\t\t{results[hop]['99%']:.3f}\t\t" +
                   f"{results[hop]['std']:.3f}")
+
     # 绘制误差曲线
     plt.figure(figsize=(12, 8))
 
