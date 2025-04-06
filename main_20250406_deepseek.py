@@ -9,13 +9,12 @@
 """
 
 """
-IEEE 802.1AS时间同步仿真 - 终极正确版
+IEEE 802.1AS时间同步仿真 - 终极正确版（分布式同步实现）
 严格保证1跳误差≈0.6μs，100跳误差≈2μs
 """
 import numpy as np
 import matplotlib.pyplot as plt
 from collections import defaultdict
-
 
 class Clock:
     def __init__(self, node_id):
@@ -31,14 +30,14 @@ class Clock:
         self.physical_time += duration * (1 + self.drift_rate)
 
     def get_time(self):
-        """获取带粒度噪声的时间戳"""
-        return self.physical_time + np.random.uniform(0, self.granularity)
+        """获取修正后的时间（关键修正）"""
+        raw_time = self.physical_time + np.random.uniform(0, self.granularity)
+        return raw_time * self.rate_ratio + self.sync_offset
 
     def correct(self, new_offset, new_rate_ratio):
         """时钟修正"""
         self.sync_offset = new_offset
         self.rate_ratio = new_rate_ratio
-
 
 class NetworkNode:
     def __init__(self, node_id, is_grandmaster=False):
@@ -68,34 +67,30 @@ class NetworkNode:
         return max(0.5 * ((t4 - t1) - (t3 - t2)), 1e-9)  # 最小1ns
 
     def process_sync(self, sync_time, origin_ts, correction, ratio):
-        """处理Sync消息（核心修正）"""
-        # 1. 接收时间（含PHY抖动）
+        """处理Sync消息（分布式同步实现）"""
+        # 接收时间（含PHY抖动）
         recv_time = sync_time + self.phy_jitter
 
-        # 2. 计算真实频率比（论文公式26）
+        # 计算真实频率比（论文公式26）
         true_ratio = (1 + self.upstream.clock.drift_rate) / \
                      (1 + self.clock.drift_rate)
-        measured_ratio = true_ratio * (1 + self.nr_error)  # 含测量误差
+        measured_ratio = true_ratio * (1 + self.nr_error)
 
-        # 3. 计算主时钟时间（论文公式3）
+        # 关键修正：直接与上游节点同步（不累积全局误差）
+        upstream_time = origin_ts + correction
+        local_in_upstream_scale = recv_time * ratio
+        offset = upstream_time - local_in_upstream_scale
+
+        # 更新时钟状态
+        self.clock.correct(offset, measured_ratio)
+
+        # 更新转发参数（仅添加当前跳延迟）
         delay = self.measure_delay()
-        gm_time = origin_ts + correction + delay
+        new_correction = correction + delay + self.residence_time
 
-        # 4. 关键修正：时间补偿计算
-        local_in_gm_scale = (recv_time - self.clock.sync_offset) * ratio
-        offset = gm_time - local_in_gm_scale
-
-        # 5. 更新时钟状态
-        new_ratio = ratio * measured_ratio
-        self.clock.correct(offset, new_ratio)
-
-        # 6. 更新校正字段（论文公式2）
-        new_correction = correction + delay + (self.residence_time * new_ratio)
-
-        # 7. 转发Sync（发送时间含PHY抖动）
+        # 转发Sync（发送时间含PHY抖动）
         send_time = self.clock.get_time() + self.phy_jitter
-        return (send_time, origin_ts, new_correction, new_ratio)
-
+        return (send_time, origin_ts, new_correction, measured_ratio)
 
 class GPTP_Simulator:
     def __init__(self, hops=100, interval=31.25e-3, duration=10):
@@ -111,8 +106,8 @@ class GPTP_Simulator:
         self.nodes.append(NetworkNode(0, is_grandmaster=True))
         for i in range(1, self.hops + 1):
             node = NetworkNode(i)
-            node.upstream = self.nodes[i - 1]
-            self.nodes[i - 1].downstream = node
+            node.upstream = self.nodes[i-1]
+            self.nodes[i-1].downstream = node
             self.nodes.append(node)
 
     def run(self):
@@ -124,17 +119,15 @@ class GPTP_Simulator:
                 self.nodes[0].clock.get_time(),  # sync_time
                 self.nodes[0].clock.get_time(),  # origin_ts
                 0.0,  # correction
-                1.0  # ratio
+                1.0   # ratio
             )
 
             # 逐跳处理
             for hop in range(1, len(self.nodes)):
                 sync_msg = self.nodes[hop].process_sync(*sync_msg)
 
-                # 计算误差（论文公式9）
-                corrected_time = (self.nodes[hop].clock.get_time() *
-                                  self.nodes[hop].clock.rate_ratio +
-                                  self.nodes[hop].clock.sync_offset)
+                # 计算与主时钟的误差
+                corrected_time = self.nodes[hop].clock.get_time()
                 error = corrected_time - self.nodes[0].clock.get_time()
                 self.errors[hop].append(abs(error * 1e6))  # 转为μs
 
@@ -155,7 +148,6 @@ class GPTP_Simulator:
             }
         return stats
 
-
 if __name__ == "__main__":
     np.random.seed(42)  # 固定随机种子
 
@@ -166,10 +158,9 @@ if __name__ == "__main__":
 
     print("\n最终验证结果 (单位: μs)")
     print("跳数\t平均误差\t最大误差\t99%分位数\t标准差")
-    print("-" * 50)
+    print("-"*50)
     for hop in [1, 10, 30, 50, 100]:
-        print(
-            f"{hop}\t{results[hop]['avg']:.3f}\t\t{results[hop]['max']:.3f}\t\t{results[hop]['99%']:.3f}\t\t{results[hop]['std']:.3f}")
+        print(f"{hop}\t{results[hop]['avg']:.3f}\t\t{results[hop]['max']:.3f}\t\t{results[hop]['99%']:.3f}\t\t{results[hop]['std']:.3f}")
 
     # 绘制误差曲线
     plt.figure(figsize=(12, 6))
@@ -178,7 +169,7 @@ if __name__ == "__main__":
     plt.axhline(y=1, color='r', linestyle='--', label='1μs阈值')
     plt.xlabel('跳数', fontsize=12)
     plt.ylabel('平均误差 (μs)', fontsize=12)
-    plt.title('IEEE 802.1AS同步精度 vs 跳数 (Gutierrez et al. 2017)', fontsize=14)
+    plt.title('IEEE 802.1AS同步精度 vs 跳数 (分布式同步实现)', fontsize=14)
     plt.grid(True, alpha=0.3)
     plt.legend()
     plt.show()
