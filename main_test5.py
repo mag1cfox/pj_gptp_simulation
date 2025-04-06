@@ -22,7 +22,7 @@ SYNC_INTERVAL = 1  # 同步间隔 (1s)
 PHY_JITTER = 8e-9  # PHY抖动范围 (8 ns)
 CLOCK_GRANULARITY = 8e-9  # 时钟粒度 (8 ns)
 MAX_DRIFT_RATE = 10e-6  # 最大漂移率 (±10 ppm)
-SIM_TIME = 100.0  # 仿真总时长 (秒)
+SIM_TIME = 600.0  # 仿真总时长 (秒)
 PDELAY_INTERVAL = 1.0  # 传播延迟测量间隔 (1 s)
 DRIFT_RATE_CHANGE = 1e-6  # 漂移率每秒变化范围 [0, 1] ppm/s
 
@@ -184,7 +184,9 @@ class Network:
 
 def process_tuple(input_tuple):
     # 使用列表推导式处理每个元素
-    processed_list = [round(x - 312500.0, 3) for x in input_tuple]
+    # processed_list = [round(x - 312500.0, 3) for x in input_tuple]
+    processed_list = [round(x - 10000000.0, 3) for x in input_tuple]
+    # processed_list = [round(x, 3) for x in input_tuple]
 
     # 将处理后的列表转换回tuple并返回
     return tuple(processed_list)
@@ -202,7 +204,7 @@ def convert_to_microseconds(time_tuple):
     # 将列表转换为元组并返回
     return tuple(converted_list)
 
-def save_tuple_to_csv(tuple_data, filename='data.csv'):
+def save_tuple_to_csv(tuple_data, filename='data20250406v2.csv'):
     # 检查文件是否存在
     file_exists = os.path.isfile(filename)
 
