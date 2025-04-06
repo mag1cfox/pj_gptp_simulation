@@ -90,7 +90,9 @@ class NetworkNode:
         noisy_ratio = measured_ratio * (1 + self.freq_error)
 
         # 限制在合理范围内 (±20ppm)
-        max_error = 20e-6
+        # max_error = 20e-6
+        # max_error = 10e-6
+        max_error = 1e-6
         if abs(noisy_ratio - real_ratio) > max_error:
             noisy_ratio = real_ratio + np.sign(noisy_ratio - real_ratio) * max_error
 
@@ -150,8 +152,11 @@ class NetworkNode:
         return (gm_time, self.clock.get_time(), (self.last_ratio_update, last_upstream))
 
 class GPTP_Simulator:
-    # def __init__(self, hops=100, interval=31.25e-3, duration=10):
-    def __init__(self, hops=100, interval=31.25e-3, duration=600):
+    # def __init__(self, hops=100, interval=31.25e-3, duration=600):
+    # 125ms = 0.125秒
+    # def __init__(self, hops=100, interval = 125e-3  , duration=600):
+    # 1s
+    def __init__(self, hops=100, interval = 1  , duration=600):
         self.hops = hops
         self.interval = interval  # 31.25ms同步间隔
         self.duration = duration
@@ -206,7 +211,7 @@ class GPTP_Simulator:
     def analyze(self):
         """分析并输出结果统计"""
         stats = {}
-        for hop in sorted([1, 10, 30, 50, 100]):
+        for hop in sorted([1, 10, 25, 50, 75, 100]):
             if hop >= len(self.nodes):
                 continue
 
@@ -230,17 +235,18 @@ class GPTP_Simulator:
 
 # 在主代码部分修改结果输出
 if __name__ == "__main__":
-    np.random.seed(42)  # 固定随机种子以便结果可重现
+    # np.random.seed(42)  # 固定随机种子以便结果可重现
+    np.random.seed(640)  # 固定随机种子以便结果可重现
 
     print("运行IEEE 802.1AS gPTP时间同步仿真...")
-    sim = GPTP_Simulator(hops=100, duration=30)  # 增加持续时间确保稳定
+    sim = GPTP_Simulator(hops=100, duration=100)  # 增加持续时间确保稳定
     sim.run()
     results = sim.analyze()
 
     print("\n最终验证结果 (单位: μs)")
     print("跳数\t\t平均误差\t\t最大误差\t\t最小误差\t\t|误差|最小\t\t|误差|最大\t\t99%分位数\t\t标准差")
     print("-" * 80)
-    for hop in sorted([1, 10, 30, 50, 100]):
+    for hop in sorted([1, 10, 25, 50, 75, 100]):
         if hop in results:
             print(f"{hop}\t\t{results[hop]['avg']:.3f}\t\t{results[hop]['max']:.3f}\t\t" +
                   f"{results[hop]['min']:.3f}\t\t{results[hop]['abs_min']:.3f}\t\t" +
