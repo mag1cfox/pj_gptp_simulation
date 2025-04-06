@@ -150,7 +150,8 @@ class NetworkNode:
         return (gm_time, self.clock.get_time(), (self.last_ratio_update, last_upstream))
 
 class GPTP_Simulator:
-    def __init__(self, hops=100, interval=31.25e-3, duration=10):
+    # def __init__(self, hops=100, interval=31.25e-3, duration=10):
+    def __init__(self, hops=100, interval=31.25e-3, duration=600):
         self.hops = hops
         self.interval = interval  # 31.25ms同步间隔
         self.duration = duration
@@ -242,25 +243,25 @@ if __name__ == "__main__":
     avg_errors = [results[h]['avg'] for h in hops]
     max_errors = [results[h]['max'] for h in hops]
 
-    plt.plot(hops, avg_errors, 'b-', linewidth=2, marker='o', label='平均误差')
-    plt.plot(hops, max_errors, 'r--', linewidth=1.5, marker='s', label='最大误差')
-    plt.axhline(y=1, color='g', linestyle='--', label='1μs阈值')
-    plt.axhline(y=2, color='orange', linestyle='--', label='2μs阈值')
-    plt.xlabel('跳数')
-    plt.ylabel('同步误差 (μs)')
-    plt.title('IEEE 802.1AS gPTP同步精度 vs 跳数')
+    plt.plot(hops, avg_errors, 'b-', linewidth=2, marker='o', label='Average Error')
+    plt.plot(hops, max_errors, 'r--', linewidth=1.5, marker='s', label='Maximum Error')
+    plt.axhline(y=1, color='g', linestyle='--', label='1μs Threshold')
+    plt.axhline(y=2, color='orange', linestyle='--', label='2μs Threshold')
+    plt.xlabel('Hops')
+    plt.ylabel('Synchronization Error (μs)')
+    plt.title('IEEE 802.1AS gPTP Synchronization Precision vs. Hop Count')
     plt.grid(True, alpha=0.3)
     plt.legend()
-    
+
     # 图2: 所有跳数的误差分布
     plt.subplot(2, 1, 2)
     max_hop = max(sim.time_records.keys())
-    plt.boxplot([sim.time_records[h] for h in range(1, max_hop+1, max(1, max_hop//10))],
-                positions=list(range(1, max_hop+1, max(1, max_hop//10))),
+    plt.boxplot([sim.time_records[h] for h in range(1, max_hop + 1, max(1, max_hop // 10))],
+                positions=list(range(1, max_hop + 1, max(1, max_hop // 10))),
                 widths=3)
-    plt.xlabel('跳数')
-    plt.ylabel('误差分布 (μs)')
-    plt.title('各跳数的误差分布')
+    plt.xlabel('Hop Count')
+    plt.ylabel('Error Distribution (μs)')
+    plt.title('Error Distribution across Different Hop Counts')
     plt.grid(True, alpha=0.3)
 
     plt.tight_layout()
