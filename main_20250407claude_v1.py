@@ -11,92 +11,125 @@ import numpy as np
 import matplotlib.pyplot as plt
 from collections import defaultdict
 
-# 常量配置
-NUM_NODES = 102  # 链式网络中的节点数
-SYNC_INTERVAL = 0.03125  # 同步间隔 (31.25 ms)
-# SYNC_INTERVAL = 125e-6  # 同步间隔 (125ms)
-# SYNC_INTERVAL = 1  # 同步间隔 (1s)
-PHY_JITTER = 8e-9  # PHY抖动范围 (8 ns)
-CLOCK_GRANULARITY = 8e-9  # 时钟粒度 (8 ns)
-MAX_DRIFT_RATE = 10e-6  # 最大漂移率 (±10 ppm)
-SIM_TIME = 100.0  # 仿真总时长 (秒)
-PDELAY_INTERVAL = 1.0  # 传播延迟测量间隔 (1 s)
-DRIFT_RATE_CHANGE = 1e-6  # 漂移率每秒变化范围 [0, 1] ppm/s
-
 
 class Clock:
-    def __init__(self):
-        self.drift_rate = np.random.uniform(-MAX_DRIFT_RATE, MAX_DRIFT_RATE)
-        self.offset = 0.0  # 相对于主时钟的偏移
-        self.time = 0.0  # 本地时间
-        self.rate_ratio = 1.0  # 相对于上游时钟的频率比
+    def __init__(self, node_id):
+        # 初始化时钟参数（单位：秒）
+        self.drift_rate_initial = np.random.uniform(-10, 10) * 1e-6  # 初始漂移率 (±10ppm)
+        self.drift_rate_change = np.random.uniform(0, 1) * 1e-6  # 变化率上限1ppm/s
+        self.current_drift_rate = self.drift_rate_initial
+        self.granularity = 8e-9  # 8ns计时粒度
+        self.physical_time = 0.0  # 实际物理时间
+        self.offset = 0.0  # 对主时钟的偏移量
+        self.rate_ratio = 1.0  # 相对主时钟的频率比
+        self.last_update_time = 0.0  # 记录上一次更新时间
 
-    def update(self, delta_t):
-        # 动态调整漂移率（每秒变化范围为 [0, 1] ppm/s）
-        self.drift_rate += np.random.uniform(-DRIFT_RATE_CHANGE, DRIFT_RATE_CHANGE) * delta_t
-        self.drift_rate = np.clip(self.drift_rate, -MAX_DRIFT_RATE, MAX_DRIFT_RATE)
+        # 温度影响模型
+        self.temp_sensitivity = np.random.uniform(0.1, 0.5) * 1e-6  # 温度敏感度 (ppm/°C)
+        self.ambient_temp = 25.0  # 初始环境温度(°C)
 
-        # 考虑漂移率更新本地时间
-        self.time += delta_t * (1 + self.drift_rate)
-        return self.time
+    def simulate_temp_change(self, duration):
+        """模拟温度变化对时钟的影响"""
+        # 随机温度波动 ±0.5°C
+        self.ambient_temp += np.random.uniform(-0.5, 0.5) * min(duration, 1.0)
+        temp_effect = (self.ambient_temp - 25.0) * self.temp_sensitivity
+        return temp_effect
 
-    def adjust(self, offset):
-        """调整时钟偏移"""
-        self.offset += offset
+    def advance(self, duration):
+        """推进时钟物理时间（考虑动态漂移）"""
+        # 动态调整漂移率：ρ(t) = ρ0 + ρ'(t)
+        time_since_last_update = self.physical_time - self.last_update_time
+        if time_since_last_update > 0:
+            drift_delta = np.random.uniform(0, self.drift_rate_change) * time_since_last_update
+            self.current_drift_rate += np.random.choice([-1, 1]) * drift_delta
 
-    def get_time(self):
-        """获取修正后的时间"""
-        return self.time + self.offset
+            # 添加温度影响
+            temp_effect = self.simulate_temp_change(duration)
+            self.current_drift_rate += temp_effect
+
+            # 限制漂移率在±10ppm范围内
+            self.current_drift_rate = np.clip(self.current_drift_rate, -10e-6, 10e-6)
+
+        # 更新物理时间（考虑当前漂移率）
+        self.physical_time += duration * (1 + self.current_drift_rate)
+        self.last_update_time = self.physical_time
 
     def get_raw_time(self):
-        """获取原始时间（带噪声）"""
-        return self.time + np.random.uniform(0, CLOCK_GRANULARITY)
+        """获取原始时间戳（带粒度噪声）"""
+        return self.physical_time + np.random.uniform(0, self.granularity)
+
+    def get_time(self):
+        """获取修正后的时间（应用同步修正）"""
+        # 将本地时钟修正为主时钟时间
+        return self.get_raw_time() * self.rate_ratio + self.offset
+
+    def correct(self, offset, rate_ratio):
+        """修正时钟参数"""
+        self.offset = offset
+        self.rate_ratio = rate_ratio
 
 
-class Node:
+class NetworkNode:
     def __init__(self, node_id, is_grandmaster=False):
         self.id = node_id
         self.is_grandmaster = is_grandmaster
-        self.clock = Clock()
+        self.clock = Clock(node_id)
 
         # 网络延迟参数
         self.prop_delay = 50e-9  # 50ns固定传播延迟
-        self.phy_jitter = np.random.uniform(0, PHY_JITTER)  # PHY抖动
+        self.phy_jitter = np.random.uniform(0, 8e-9)  # PHY抖动0-8ns
         self.residence_time = min(np.random.exponential(500e-6), 1e-3)  # 驻留时间
+        self.asymmetry_delay = np.random.uniform(-5e-9, 5e-9)  # 随机路径不对称性±5ns
 
         # 网络拓扑
         self.upstream = None
         self.downstream = None
 
-        # 同步状态
+        # 频率比测量误差±0.1ppm
+        self.freq_error = np.random.uniform(-0.1e-6, 0.1e-6)
+
+        # 同步状态跟踪
         self.sync_count = 0
         self.last_ratio_update = 0
         self.last_upstream_time = 0
 
-        # 测量误差±0.1ppm
-        self.freq_error = np.random.uniform(-0.1e-6, 0.1e-6)
+        # 网络事件跟踪
+        self.last_event_time = 0
+        self.event_cooldown = 30.0  # 事件冷却时间（秒）
 
-        # 错误记录
-        self.time_errors = []
+    def simulate_network_event(self):
+        """模拟随机网络事件(如负载突变)"""
+        # 检查是否已经过了冷却时间
+        if self.clock.physical_time - self.last_event_time < self.event_cooldown:
+            return 0
+
+        if np.random.random() < 0.01:  # 1%概率发生突发事件
+            self.last_event_time = self.clock.physical_time
+            # 突发延迟增加5-50μs
+            return np.random.uniform(5e-6, 50e-6)
+        return 0
 
     def measure_propagation_delay(self):
-        """测量链路延迟（PDelay过程）"""
-        if not self.upstream:
-            return 0.0
+        """测量链路延迟（PDelay过程），包含不对称性补偿"""
+        # 基础延迟（对称部分）
+        symmetric_delay = self.prop_delay + 0.5 * (self.phy_jitter + self.upstream.phy_jitter)
 
-        # 模拟PDelay请求-响应过程
-        delay = self.prop_delay + 0.5 * (self.phy_jitter + self.upstream.phy_jitter)
-        # 添加随机波动模拟实际测量
-        return max(delay * (1 + np.random.uniform(-0.05, 0.05)), 1e-9)
+        # 添加随机波动、不对称性补偿与网络事件
+        event_delay = self.simulate_network_event()
+        measured_delay = (symmetric_delay * (1 + np.random.uniform(-0.05, 0.05)) +
+                          self.asymmetry_delay + event_delay)
+
+        # 确保延迟不为负
+        return max(measured_delay, 1e-9)
 
     def calculate_rate_ratio(self, t1, t2, master_t1, master_t2):
         """计算频率比（相对上游节点）"""
         if t2 <= t1 or master_t2 <= master_t1:
             return 1.0  # 防止无效测量
 
-        # 真实频率比
-        real_ratio = ((1 + self.upstream.clock.drift_rate) /
-                      (1 + self.clock.drift_rate))
+        # 真实频率比（使用当前动态漂移率）
+        real_ratio = ((1 + self.upstream.clock.current_drift_rate) /
+                      (1 + self.clock.current_drift_rate))
 
         # 基于两个时间戳测量的频率比
         delta_local = t2 - t1
@@ -123,7 +156,7 @@ class Node:
 
         # 主时钟节点直接返回自身时间
         if self.is_grandmaster:
-            return (self.clock.get_time(), self.clock.get_raw_time(), (0, 0))
+            return (gm_time, self.clock.get_raw_time(), (0, 0))
 
         # 接收同步消息的时间戳（本地时钟）
         recv_ts = self.clock.get_raw_time() + self.phy_jitter
@@ -158,50 +191,45 @@ class Node:
         local_time = recv_ts
 
         # 时钟偏移计算（考虑频率比）
-        offset = corrected_upstream - (local_time * self.clock.rate_ratio + self.clock.offset)
+        offset = corrected_upstream - (local_time * self.clock.rate_ratio)
 
         # 更新时钟修正参数
-        self.clock.adjust(offset)
-
-        # 记录同步误差
-        error = self.clock.get_time() - gm_time
-        self.time_errors.append(abs(error * 1e6))  # 转换为μs存储
+        self.clock.offset = offset
 
         # 返回更新后的信息
         return (gm_time, self.clock.get_time(), (self.last_ratio_update, last_upstream))
 
 
 class GPTP_Simulator:
-    def __init__(self, hops=100, interval=SYNC_INTERVAL, duration=SIM_TIME):
+    def __init__(self, hops=100, interval=31.25e-3, duration=60):
+    # def __init__(self, hops=100, interval=125e-3, duration=60):
+    # def __init__(self, hops=100, interval=1, duration=60):
         self.hops = hops
-        self.interval = interval  # 同步间隔
-        self.duration = duration
+        self.interval = interval  # 同步间隔（默认31.25ms）
+        self.duration = duration  # 仿真持续时间（秒）
         self.nodes = []
         self.errors = defaultdict(list)
         self.time_records = defaultdict(list)
+        self.drift_records = defaultdict(list)  # 记录漂移率变化
         self.setup_network()
 
     def setup_network(self):
         """创建链式网络拓扑"""
         # 创建主时钟节点
-        self.nodes.append(Node(0, is_grandmaster=True))
+        self.nodes.append(NetworkNode(0, is_grandmaster=True))
 
         # 创建级联的从时钟节点
         for i in range(1, self.hops + 1):
-            node = Node(i)
-            node.upstream = self.nodes[i-1]
-            self.nodes[i-1].downstream = node
+            node = NetworkNode(i)
+            node.upstream = self.nodes[i - 1]
+            self.nodes[i - 1].downstream = node
             self.nodes.append(node)
 
     def run(self):
         """运行仿真"""
         steps = int(self.duration / self.interval)
-        time_points = []
 
         for step in range(steps):
-            current_time = step * self.interval
-            time_points.append(current_time)
-
             # 主时钟当前时间
             gm_time = self.nodes[0].clock.get_time()
 
@@ -224,11 +252,12 @@ class GPTP_Simulator:
                     if step > steps // 2:  # 只记录稳定后的数据
                         self.time_records[hop].append(error * 1e6)
 
+                # 记录漂移率
+                self.drift_records[hop].append(self.nodes[hop].clock.current_drift_rate * 1e6)  # 转为ppm
+
             # 推进所有节点的物理时钟
             for node in self.nodes:
-                node.clock.update(self.interval)
-
-        return time_points
+                node.clock.advance(self.interval)
 
     def analyze(self):
         """分析并输出结果统计"""
@@ -238,10 +267,17 @@ class GPTP_Simulator:
                 continue
 
             # 只分析后半段（稳定）
-            err = np.array(self.errors[hop][len(self.errors[hop]) // 2:])
+            start_idx = len(self.errors[hop]) // 2
+            err = np.array(self.errors[hop][start_idx:])
 
             # 获取原始误差值（有正负）
             raw_errors = np.array(self.time_records[hop])
+
+            # 分析误差的动态性
+            if len(raw_errors) > 1:
+                error_changes = np.diff(raw_errors)
+            else:
+                error_changes = np.array([0])
 
             stats[hop] = {
                 'avg': np.mean(err),
@@ -250,58 +286,109 @@ class GPTP_Simulator:
                 'abs_min': np.min(np.abs(raw_errors)),  # 绝对值最小误差
                 'abs_max': np.max(np.abs(raw_errors)),  # 绝对值最大误差
                 '99%': np.percentile(err, 99),
-                'std': np.std(err)
+                'std': np.std(err),
+                'error_rate_of_change': np.mean(np.abs(error_changes)),  # 误差变化率
+                'stability_metric': np.std(error_changes)  # 稳定性指标
             }
+
+            # 漂移率分析
+            drift_data = np.array(self.drift_records[hop][start_idx:])
+            stats[hop]['drift_avg'] = np.mean(drift_data)
+            stats[hop]['drift_std'] = np.std(drift_data)
+
         return stats
 
+    def visualize_results(self, results):
+        """可视化仿真结果"""
+        plt.figure(figsize=(15, 12))
 
+        # 图1: 平均误差 vs 跳数
+        plt.subplot(3, 1, 1)
+        hops = sorted(list(results.keys()))
+        avg_errors = [results[h]['avg'] for h in hops]
+        max_errors = [results[h]['max'] for h in hops]
+
+        plt.plot(hops, avg_errors, 'b-', linewidth=2, marker='o', label='Average Error')
+        plt.plot(hops, max_errors, 'r--', linewidth=1.5, marker='s', label='Maximum Error')
+        plt.axhline(y=1, color='g', linestyle='--', label='1μs Threshold')
+        plt.axhline(y=2, color='orange', linestyle='--', label='2μs Threshold')
+        plt.xlabel('Hops')
+        plt.ylabel('Synchronization Error (μs)')
+        plt.title('IEEE 802.1AS gPTP Synchronization Precision vs. Hop Count')
+        plt.grid(True, alpha=0.3)
+        plt.legend()
+
+        # 图2: 所有跳数的误差分布
+        plt.subplot(3, 1, 2)
+        plot_hops = range(1, self.hops + 1, max(1, self.hops // 10))
+        data_to_plot = [self.time_records[h] for h in plot_hops if h in self.time_records]
+        if data_to_plot:
+            plt.boxplot(data_to_plot, positions=list(plot_hops), widths=3)
+            plt.xlabel('Hop Count')
+            plt.ylabel('Error Distribution (μs)')
+            plt.title('Error Distribution across Different Hop Counts')
+            plt.grid(True, alpha=0.3)
+
+        # 图3: 时钟漂移率变化
+        plt.subplot(3, 1, 3)
+        time_axis = np.arange(len(self.drift_records[1])) * self.interval
+        for hop in [1, self.hops // 2, self.hops] if self.hops > 2 else [1]:
+            if hop in self.drift_records:
+                plt.plot(time_axis, self.drift_records[hop],
+                         label=f'Node {hop} Drift Rate')
+
+        plt.xlabel('Simulation Time (s)')
+        plt.ylabel('Drift Rate (ppm)')
+        plt.title('Clock Drift Rate Variation Over Time')
+        plt.grid(True, alpha=0.3)
+        plt.legend()
+
+        plt.tight_layout()
+        plt.savefig('gptp_simulation_results.png', dpi=300)
+        plt.show()
+
+
+# 主程序调用
 if __name__ == "__main__":
     np.random.seed(640)  # 固定随机种子以便结果可重现
 
     print("运行IEEE 802.1AS gPTP时间同步仿真...")
-    sim = GPTP_Simulator(hops=100, duration=100)  # 设置100跳网络，100秒仿真时间
-    time_points = sim.run()
+
+    # 可以试验不同的同步间隔
+    intervals = {
+        '31.25ms': 31.25e-3,
+        '125ms': 125e-3,
+        '1s': 1.0
+    }
+
+    # 选择要使用的间隔
+    # selected_interval = '31.25ms'
+    # selected_interval = '125ms'
+    selected_interval = '1s'
+
+    sim = GPTP_Simulator(hops=100, interval=intervals[selected_interval], duration=60)
+    sim.run()
     results = sim.analyze()
 
-    print("\n最终验证结果 (单位: μs)")
-    print("跳数\t\t平均误差\t\t最大误差\t\t最小误差\t\t|误差|最小\t\t|误差|最大\t\t99%分位数\t\t标准差")
-    print("-" * 80)
+    print(f"\n最终验证结果 (单位: μs) - 同步间隔: {selected_interval}")
+    print("跳数\t\t平均误差\t\t最大误差\t\t最小误差\t\t|误差|最小\t\t|误差|最大\t\t99%分位数\t\t标准差\t\t误差变化率\t\t稳定性指标")
+    print("-" * 120)
     for hop in sorted([1, 10, 25, 50, 75, 100]):
         if hop in results:
             print(f"{hop}\t\t{results[hop]['avg']:.3f}\t\t{results[hop]['max']:.3f}\t\t" +
                   f"{results[hop]['min']:.3f}\t\t{results[hop]['abs_min']:.3f}\t\t" +
                   f"{results[hop]['abs_max']:.3f}\t\t{results[hop]['99%']:.3f}\t\t" +
-                  f"{results[hop]['std']:.3f}")
+                  f"{results[hop]['std']:.3f}\t\t{results[hop]['error_rate_of_change']:.6f}\t\t" +
+                  f"{results[hop]['stability_metric']:.6f}")
 
-    # 绘制误差曲线
-    plt.figure(figsize=(12, 8))
+    print("\n时钟漂移率统计 (单位: ppm)")
+    print("跳数\t平均漂移率\t漂移率标准差")
+    print("-" * 40)
+    for hop in sorted([1, 10, 25, 50, 75, 100]):
+        if hop in results:
+            print(f"{hop}\t\t{results[hop]['drift_avg']:.3f}\t\t{results[hop]['drift_std']:.3f}")
 
-    # 图1: 平均误差 vs 跳数
-    plt.subplot(2, 1, 1)
-    hops = sorted(list(results.keys()))
-    avg_errors = [results[h]['avg'] for h in hops]
-    max_errors = [results[h]['max'] for h in hops]
+    # 可视化结果
+    sim.visualize_results(results)
 
-    plt.plot(hops, avg_errors, 'b-', linewidth=2, marker='o', label='Average Error')
-    plt.plot(hops, max_errors, 'r--', linewidth=1.5, marker='s', label='Maximum Error')
-    plt.axhline(y=1, color='g', linestyle='--', label='1μs Threshold')
-    plt.axhline(y=2, color='orange', linestyle='--', label='2μs Threshold')
-    plt.xlabel('Hops')
-    plt.ylabel('Synchronization Error (μs)')
-    plt.title('IEEE 802.1AS gPTP Synchronization Precision vs. Hop Count')
-    plt.grid(True, alpha=0.3)
-    plt.legend()
-
-    # 图2: 所有跳数的误差分布
-    plt.subplot(2, 1, 2)
-    max_hop = max(sim.time_records.keys())
-    plt.boxplot([sim.time_records[h] for h in range(1, max_hop + 1, max(1, max_hop // 10))],
-                positions=list(range(1, max_hop + 1, max(1, max_hop // 10))),
-                widths=3)
-    plt.xlabel('Hop Count')
-    plt.ylabel('Error Distribution (μs)')
-    plt.title('Error Distribution across Different Hop Counts')
-    plt.grid(True, alpha=0.3)
-
-    plt.tight_layout()
-    plt.show()
+    print("\n仿真完成，结果已保存为图像文件。")
