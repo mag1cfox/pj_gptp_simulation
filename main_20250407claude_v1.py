@@ -115,9 +115,10 @@ class NetworkNode:
         symmetric_delay = self.prop_delay + 0.5 * (self.phy_jitter + self.upstream.phy_jitter)
 
         # 添加随机波动、不对称性补偿与网络事件
-        event_delay = self.simulate_network_event()
+        # event_delay = self.simulate_network_event()
         measured_delay = (symmetric_delay * (1 + np.random.uniform(-0.05, 0.05)) +
-                          self.asymmetry_delay + event_delay)
+                          # self.asymmetry_delay + event_delay)
+                          self.asymmetry_delay)
 
         # 确保延迟不为负
         return max(measured_delay, 1e-9)
@@ -176,9 +177,9 @@ class NetworkNode:
                     last_times[0], upstream_time
                 )
                 # 平滑更新频率比（避免突变）
-                if self.sync_count > 10:
-                    ratio = 0.2 * ratio + 0.8 * self.clock.rate_ratio
-                self.clock.rate_ratio = ratio
+                # if self.sync_count > 10:
+                #     ratio = 0.2 * ratio + 0.8 * self.clock.rate_ratio
+                # self.clock.rate_ratio = ratio
 
             self.last_ratio_update = curr_time
             last_upstream = upstream_time
@@ -366,7 +367,7 @@ if __name__ == "__main__":
     # selected_interval = '125ms'
     selected_interval = '1s'
 
-    sim = GPTP_Simulator(hops=100, interval=intervals[selected_interval], duration=60)
+    sim = GPTP_Simulator(hops=100, interval=intervals[selected_interval], duration=6000)
     sim.run()
     results = sim.analyze()
 
