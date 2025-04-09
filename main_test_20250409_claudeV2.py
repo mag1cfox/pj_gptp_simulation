@@ -7,6 +7,14 @@
 *  @FileName:   main_test_20250409_claudeV2.py
 **************************************
 """
+
+"""
+Modified IEEE 802.1AS Time Synchronization Simulation
+- Runtime: 600 seconds
+- Monitoring nodes: 10, 25, 50, 75, 100
+- Plotting time deviations as a line graph
+"""
+
 import numpy as np
 import matplotlib.pyplot as plt
 from typing import List, Dict, Tuple
@@ -95,7 +103,9 @@ class TimeAwareSystem:
 
         # Sync-related state
         self.sync_locked = True  # syncLocked flag (True for better precision)
-        self.sync_interval = 31.25e-3  # syncInterval (31.25 ms)
+        # self.sync_interval = 31.25e-3  # syncInterval (31.25 ms)
+        # self.sync_interval = 125e-3  # syncInterval (125 ms)
+        self.sync_interval = 1.0  # syncInterval (1 s)
         self.next_sync_time = 0.0
 
         # Time synchronization information
@@ -159,7 +169,7 @@ class TimeAwareSystem:
 
                 # Forward to downstream neighbors
                 for neighbor in self.downstream_neighbors:
-                    self.forward_sync(perfect_time + residence_time, origin_timestamp,
+                    return self.forward_sync(perfect_time + residence_time, origin_timestamp,
                                       new_correction, self.rate_ratio)
 
             # If not in sync_locked mode, schedule next sync based on interval
@@ -280,7 +290,7 @@ class TimeAwareSystem:
 class IEEE8021ASSimulation:
     """Simulation of IEEE 802.1AS network."""
 
-    def __init__(self, num_nodes=100, simulation_time=100.0):
+    def __init__(self, num_nodes=100, simulation_time=600.0):
         """
         Initialize the simulation.
 
@@ -398,20 +408,25 @@ class IEEE8021ASSimulation:
         """Analyze simulation results."""
         results = {
             "node_deviations": {},
+            "node_deviations_time_series": {},  # Add time series data
             "propagation_delays": [],
             "sync_receptions": []
         }
 
         # Collect time deviations for each node
+        monitored_nodes = [10, 25, 50, 75, 100]
         for i, node in enumerate(self.nodes):
-            if i > 0:  # Skip grandmaster
+            if i > 0 and i in monitored_nodes:  # Only collect data for monitored nodes
                 deviations = [dev for _, dev in node.time_deviations]
                 results["node_deviations"][i] = deviations
+                # Store time series data
+                results["node_deviations_time_series"][i] = node.time_deviations
                 results["sync_receptions"].append(node.sync_receptions)
 
         # Collect propagation delays
-        for i in range(1, self.num_nodes):
-            results["propagation_delays"].append(self.nodes[i].propagation_delay)
+        for i in monitored_nodes:
+            if i < self.num_nodes:
+                results["propagation_delays"].append(self.nodes[i].propagation_delay)
 
         return results
 
@@ -454,71 +469,39 @@ def analyze_sync_precision(results, threshold_us=1.0):
     return analysis
 
 
-def plot_results(results, analysis):
+def plot_time_deviations(results):
     """
-    Plot simulation results.
+    Plot time deviations for specified nodes over time.
 
     Args:
-        results: Simulation results
-        analysis: Analysis results
+        results: Simulation results containing time series data
     """
-    # Figure 1: Distribution of time deviations for node 100
-    if 100 in results["node_deviations"]:
-        plt.figure(figsize=(10, 6))
-        plt.hist(np.array(results["node_deviations"][100]) * 1e6, bins=50, alpha=0.7)
-        plt.xlabel('Time Deviation from GM (µs)')
-        plt.ylabel('Frequency')
-        plt.title('Distribution of Time Deviations for Node 100')
-        plt.grid(True)
-        plt.savefig('time_deviation_distribution.png')
-        plt.close()
+    plt.figure(figsize=(12, 8))
 
-    # Figure 2: Probability of synchronization for different precision thresholds
-    plt.figure(figsize=(10, 6))
-    nodes = sorted(analysis["sync_probabilities"].keys())
-    selected_nodes = [10, 30, 50, 70, 100] if 100 in nodes else nodes[-5:]
+    # Select nodes to plot (10, 25, 50, 75, 100)
+    nodes_to_plot = [10, 25, 50, 75, 100]
 
-    thresholds = [0.5, 1.0, 1.5, 2.0]
-    for threshold in thresholds:
-        probs = []
-        for node in nodes:
-            if node in results["node_deviations"]:
-                deviations = results["node_deviations"][node]
-                in_sync_count = sum(1 for dev in deviations if abs(dev) < threshold * 1e-6)
-                probability = in_sync_count / len(deviations) if deviations else 0
-                probs.append(probability)
-        plt.plot(nodes, probs, marker='o', label=f'{threshold} µs')
+    # Plot time deviations for each node
+    for node_id in nodes_to_plot:
+        if node_id in results["node_deviations_time_series"]:
+            time_series = results["node_deviations_time_series"][node_id]
+            times = [t for t, _ in time_series]
+            deviations = [d * 1e6 for _, d in time_series]  # Convert to microseconds
+            plt.plot(times, deviations, label=f'Node {node_id}')
 
-    plt.xlabel('Node ID (Hops from Grandmaster)')
-    plt.ylabel('Probability of Synchronization')
-    plt.title('Probability of Synchronization for Different Precision Thresholds')
+    plt.xlabel('Simulation Time (s)')
+    plt.ylabel('Time Deviation (µs)')
+    plt.title('Time Deviations from Grandmaster Over Time')
     plt.grid(True)
     plt.legend()
-    plt.savefig('sync_probability.png')
-    plt.close()
-
-    # Figure 3: Probability of synchronization within 1 µs for all nodes
-    plt.figure(figsize=(10, 6))
-    probs_1us = []
-    for node in nodes:
-        if node in results["node_deviations"]:
-            deviations = results["node_deviations"][node]
-            in_sync_count = sum(1 for dev in deviations if abs(dev) < 1.0 * 1e-6)
-            probability = in_sync_count / len(deviations) if deviations else 0
-            probs_1us.append(probability)
-
-    plt.plot(nodes, probs_1us, marker='o')
-    plt.xlabel('Node ID (Hops from Grandmaster)')
-    plt.ylabel('Probability of Synchronization')
-    plt.title('Probability of Synchronization within 1 µs')
-    plt.grid(True)
-    plt.savefig('sync_probability_1us.png')
+    plt.tight_layout()
+    plt.savefig('time_deviations_over_time.png')
     plt.close()
 
 
 if __name__ == "__main__":
-    # Run simulation with 100 nodes for 100 seconds
-    sim = IEEE8021ASSimulation(num_nodes=100, simulation_time=100.0)
+    # Run simulation with 101 nodes (0-100) for 600 seconds
+    sim = IEEE8021ASSimulation(num_nodes=101, simulation_time=600.0)
     results = sim.run()
 
     # Analyze results
@@ -528,11 +511,11 @@ if __name__ == "__main__":
     print(f"Simulation completed with {sim.num_nodes} nodes for {sim.simulation_time} seconds")
     print(f"Overall synchronization precision: {analysis['overall_precision'] * 1e6:.3f} µs")
 
-    # Plot results
-    plot_results(results, analysis)
+    # Plot time deviations over time
+    plot_time_deviations(results)
 
     # Print detailed results for specific nodes
-    selected_nodes = [10, 30, 50, 100]
+    selected_nodes = [10, 25, 50, 75, 100]
     print("\nDetailed results for selected nodes:")
     for node in selected_nodes:
         if node in analysis["max_deviations"]:
