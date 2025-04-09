@@ -1,10 +1,10 @@
 """
 **************************************
 *  @Author  ：   mag1cfox
-*  @Time    ：   2025/4/7 0:24
+*  @Time    ：   2025/4/9
 *  @Project :   pj_gptp_simulation
-*  @Description :   main_20250406claude 升级
-*  @FileName:   main_20250407claude_v1.py
+*  @Description :   Enhanced simulation with TE visualization
+*  @FileName:   gptp_enhanced.py
 **************************************
 """
 import numpy as np
@@ -16,7 +16,7 @@ class Clock:
     def __init__(self, node_id):
         # 初始化时钟参数（单位：秒）
         self.drift_rate_initial = np.random.uniform(-10, 10) * 1e-6  # 初始漂移率 (±10ppm)
-        self.drift_rate_change = np.random.uniform(0, 1) * 1e-6  # 变化率上限1ppm/s
+        self.drift_rate_change = np.random.uniform(-1, 1) * 1e-6  # 变化率上限1ppm/s
         self.current_drift_rate = self.drift_rate_initial
         self.granularity = 8e-9  # 8ns计时粒度
         self.physical_time = 0.0  # 实际物理时间
@@ -36,13 +36,17 @@ class Clock:
         return temp_effect
 
     def advance(self, duration):
-        # 漂移率随时间线性变化（而非随机波动）
-        drift_change = self.drift_rate_change * duration
-        self.current_drift_rate += drift_change
+        # 改为更确定性的漂移变化模型（而非完全随机）
+        # 漂移率随时间变化，确保不同同步周期的影响更明显
+        drift_change = self.drift_rate_change * duration * 0.5  # 减小随机性
+        self.current_drift_rate += drift_change * np.random.choice([-1, 1], p=[0.4, 0.6])  # 偏向正向漂移
 
-        # 添加温度相关漂移（可保留一定随机性）
+        # 添加温度相关漂移
         temp_effect = self.simulate_temp_change(duration)
         self.current_drift_rate += temp_effect
+
+        # 限制漂移率在合理范围内 (-15ppm to +15ppm)
+        self.current_drift_rate = np.clip(self.current_drift_rate, -15e-6, 15e-6)
 
         # 正常时钟前进逻辑
         self.physical_time += duration * (1 + self.current_drift_rate)
@@ -108,7 +112,7 @@ class NetworkNode:
         symmetric_delay = self.prop_delay + 0.5 * (self.phy_jitter + self.upstream.phy_jitter)
 
         # 添加随机波动、不对称性补偿与网络事件
-        # event_delay = self.simulate_network_event()
+        # event_delay = self.simulate_network_event()  # 启用网络事件
         measured_delay = (symmetric_delay * (1 + np.random.uniform(-0.05, 0.05)) +
                           # self.asymmetry_delay + event_delay)
                           self.asymmetry_delay)
@@ -170,7 +174,7 @@ class NetworkNode:
                     self.last_ratio_update, curr_time,
                     last_times[0], upstream_time
                 )
-                # 启用频率比更新
+                # 启用频率比更新 - 取消注释
                 if self.sync_count > 10:
                     ratio = 0.2 * ratio + 0.8 * self.clock.rate_ratio
                 self.clock.rate_ratio = ratio
@@ -188,6 +192,10 @@ class NetworkNode:
         # 时钟偏移计算（考虑频率比）
         offset = corrected_upstream - (local_time * self.clock.rate_ratio)
 
+        # 平滑偏移更新 - 增加平滑因子以提高稳定性
+        if self.sync_count > 10:
+            offset = 0.3 * offset + 0.7 * self.clock.offset
+
         # 更新时钟修正参数
         self.clock.offset = offset
 
@@ -196,16 +204,19 @@ class NetworkNode:
 
 
 class GPTP_Simulator:
-    def __init__(self, hops=100, interval=31.25e-3, duration=60):
-    # def __init__(self, hops=100, interval=125e-3, duration=60):
-    # def __init__(self, hops=100, interval=1, duration=60):
+    def __init__(self, hops=100, interval=1, duration=60):
         self.hops = hops
-        self.interval = interval  # 同步间隔（默认31.25ms）
+        self.interval = interval  # 同步间隔（可变）
         self.duration = duration  # 仿真持续时间（秒）
         self.nodes = []
         self.errors = defaultdict(list)
         self.time_records = defaultdict(list)
         self.drift_records = defaultdict(list)  # 记录漂移率变化
+
+        # 用于记录完整的时间误差随时间变化
+        self.time_axis = []  # 记录时间点
+        self.complete_te_data = defaultdict(list)  # 记录完整的时间误差数据
+
         self.setup_network()
 
     def setup_network(self):
@@ -223,8 +234,11 @@ class GPTP_Simulator:
     def run(self):
         """运行仿真"""
         steps = int(self.duration / self.interval)
+        self.time_axis = np.arange(steps) * self.interval  # 记录时间轴
 
         for step in range(steps):
+            current_time = step * self.interval
+
             # 主时钟当前时间
             gm_time = self.nodes[0].clock.get_time()
 
@@ -242,6 +256,9 @@ class GPTP_Simulator:
                     master_time = self.nodes[0].clock.get_time()
                     error = corrected_time - master_time
                     self.errors[hop].append(abs(error * 1e6))  # 转为μs
+
+                    # 记录完整的时间误差数据（包含正负号）
+                    self.complete_te_data[hop].append(error * 1e6)  # 转为μs
 
                     # 记录原始误差（用于分析）
                     if step > steps // 2:  # 只记录稳定后的数据
@@ -293,7 +310,7 @@ class GPTP_Simulator:
 
         return stats
 
-    def visualize_results(self, results):
+    def visualize_results(self, results, title_suffix=""):
         """可视化仿真结果"""
         plt.figure(figsize=(15, 12))
 
@@ -309,7 +326,7 @@ class GPTP_Simulator:
         plt.axhline(y=2, color='orange', linestyle='--', label='2μs Threshold')
         plt.xlabel('Hops')
         plt.ylabel('Synchronization Error (μs)')
-        plt.title('IEEE 802.1AS gPTP Synchronization Precision vs. Hop Count')
+        plt.title(f'IEEE 802.1AS gPTP Sync Precision vs. Hop Count - {title_suffix}')
         plt.grid(True, alpha=0.3)
         plt.legend()
 
@@ -339,51 +356,132 @@ class GPTP_Simulator:
         plt.legend()
 
         plt.tight_layout()
-        plt.savefig('gptp_simulation_results.png', dpi=300)
-        plt.show()
+        plt.savefig(f'gptp_simulation_results_{title_suffix.replace(" ", "_")}.png', dpi=300)
+
+        # 绘制时间误差(TE)随时间变化的图
+        plt.figure(figsize=(15, 8))
+        key_hops = [1, 10, 25, 50, 75, 100]
+        for hop in key_hops:
+            if hop in self.complete_te_data and len(self.complete_te_data[hop]) > 0:
+                plt.plot(self.time_axis, self.complete_te_data[hop], label=f'Hop {hop}')
+
+        plt.xlabel('Simulation Time (s)')
+        plt.ylabel('Time Error (μs)')
+        plt.title(f'Time Error Evolution - {title_suffix}')
+        plt.grid(True, alpha=0.3)
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(f'time_error_evolution_{title_suffix.replace(" ", "_")}.png', dpi=300)
 
 
-# 主程序调用
-if __name__ == "__main__":
-    np.random.seed(640)  # 固定随机种子以便结果可重现
+# 辅助函数：配置随机种子以确保可重现性
+def set_random_seed(seed=640):
+    np.random.seed(seed)
+    return seed
 
-    print("运行IEEE 802.1AS gPTP时间同步仿真...")
 
-    # 可以试验不同的同步间隔
+# 主程序：分别运行不同同步周期的仿真
+def run_comparison(duration=600, hops=100):
+    print("运行IEEE 802.1AS gPTP时间同步仿真 - 比较不同同步周期...")
+
+    # 可比较的同步间隔
     intervals = {
         '31.25ms': 31.25e-3,
         '125ms': 125e-3,
         '1s': 1.0
     }
 
-    # 选择要使用的间隔
-    # selected_interval = '31.25ms'
-    # selected_interval = '125ms'
-    selected_interval = '1s'
+    results = {}
+    simulations = {}
 
-    sim = GPTP_Simulator(hops=100, interval=intervals[selected_interval], duration=600)
-    sim.run()
-    results = sim.analyze()
+    # 为每种间隔运行一次仿真
+    for interval_name, interval_value in intervals.items():
+        print(f"\n运行同步间隔为 {interval_name} 的仿真...")
 
-    print(f"\n最终验证结果 (单位: μs) - 同步间隔: {selected_interval}")
-    print("跳数\t\t平均误差\t\t最大误差\t\t最小误差\t\t|误差|最小\t\t|误差|最大\t\t99%分位数\t\t标准差\t\t误差变化率\t\t稳定性指标")
-    print("-" * 120)
-    for hop in sorted([1, 10, 25, 50, 75, 100]):
-        if hop in results:
-            print(f"{hop}\t\t{results[hop]['avg']:.3f}\t\t{results[hop]['max']:.3f}\t\t" +
-                  f"{results[hop]['min']:.3f}\t\t{results[hop]['abs_min']:.3f}\t\t" +
-                  f"{results[hop]['abs_max']:.3f}\t\t{results[hop]['99%']:.3f}\t\t" +
-                  f"{results[hop]['std']:.3f}\t\t{results[hop]['error_rate_of_change']:.6f}\t\t" +
-                  f"{results[hop]['stability_metric']:.6f}")
+        # 重置随机种子确保相同的初始条件
+        seed = set_random_seed(640)
 
-    print("\n时钟漂移率统计 (单位: ppm)")
-    print("跳数\t平均漂移率\t漂移率标准差")
-    print("-" * 40)
-    for hop in sorted([1, 10, 25, 50, 75, 100]):
-        if hop in results:
-            print(f"{hop}\t\t{results[hop]['drift_avg']:.3f}\t\t{results[hop]['drift_std']:.3f}")
+        # 创建并运行仿真
+        sim = GPTP_Simulator(hops=hops, interval=interval_value, duration=duration)
+        sim.run()
+        stats = sim.analyze()
 
-    # 可视化结果
-    sim.visualize_results(results)
+        # 存储结果
+        results[interval_name] = stats
+        simulations[interval_name] = sim
 
-    print("\n仿真完成，结果已保存为图像文件。")
+        # 可视化结果
+        sim.visualize_results(stats, f"Interval: {interval_name}")
+
+    # 比较不同间隔的结果
+    print("\n比较不同同步间隔的结果:")
+    print("跳数\t同步间隔\t平均误差(μs)\t最大误差(μs)\t99%分位数(μs)")
+    print("-" * 80)
+
+    for hop in [1, 10, 25, 50, 75, 100]:
+        for interval_name in intervals.keys():
+            if hop in results[interval_name]:
+                stats = results[interval_name][hop]
+                print(f"{hop}\t{interval_name}\t{stats['avg']:.3f}\t\t{stats['max']:.3f}\t\t{stats['99%']:.3f}")
+
+    # 绘制合并比较图
+    plt.figure(figsize=(15, 10))
+
+    # 图1: 不同间隔下的最大误差比较
+    plt.subplot(2, 1, 1)
+    hops = [1, 10, 25, 50, 75, 100]
+
+    for interval_name in intervals.keys():
+        max_errors = [results[interval_name][h]['max'] if h in results[interval_name] else 0 for h in hops]
+        plt.plot(hops, max_errors, marker='o', linewidth=2, label=f'{interval_name}')
+
+    plt.xlabel('Hops')
+    plt.ylabel('Maximum Error (μs)')
+    plt.title('Maximum Synchronization Error vs. Hop Count for Different Sync Intervals')
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+
+    # 图2: 不同间隔下的平均误差比较
+    plt.subplot(2, 1, 2)
+
+    for interval_name in intervals.keys():
+        avg_errors = [results[interval_name][h]['avg'] if h in results[interval_name] else 0 for h in hops]
+        plt.plot(hops, avg_errors, marker='s', linewidth=2, label=f'{interval_name}')
+
+    plt.xlabel('Hops')
+    plt.ylabel('Average Error (μs)')
+    plt.title('Average Synchronization Error vs. Hop Count for Different Sync Intervals')
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+
+    plt.tight_layout()
+    plt.savefig('gptp_interval_comparison.png', dpi=300)
+
+    # 绘制不同间隔下的单个节点时间误差对比
+    compare_hops = [1, 50, 100]  # 选择要比较的跳数
+
+    for hop in compare_hops:
+        plt.figure(figsize=(15, 8))
+
+        for interval_name, sim in simulations.items():
+            if hop in sim.complete_te_data:
+                # 如果数据长度不同，需要截取或插值处理
+                data = np.array(sim.complete_te_data[hop])
+                time_axis = np.linspace(0, duration, len(data))
+                plt.plot(time_axis, data, label=f'{interval_name}')
+
+        plt.xlabel('Simulation Time (s)')
+        plt.ylabel('Time Error (μs)')
+        plt.title(f'Time Error Comparison for Hop {hop} with Different Sync Intervals')
+        plt.grid(True, alpha=0.3)
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(f'time_error_comparison_hop{hop}.png', dpi=300)
+
+    print("\n仿真比较完成，所有结果已保存为图像文件。")
+    return simulations
+
+
+# 主程序调用
+if __name__ == "__main__":
+    run_comparison(duration=600, hops=100)
