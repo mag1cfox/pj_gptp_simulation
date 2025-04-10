@@ -502,6 +502,7 @@ class Port:
 
         return events
 
+    # 修改process_follow_up方法，确保记录同步数据
     def process_follow_up(self, message, reception_time, perfect_time):
         """
         Process a received Follow_Up message.
@@ -528,13 +529,16 @@ class Port:
             # Get precise timestamp from Follow_Up
             precise_origin_timestamp = message.precise_origin_timestamp
 
-            # Record time before correction for statistics
+            # Calculate GM time based on message data
             gm_time = precise_origin_timestamp + message.correction_field + self.mean_path_delay
             local_time = self.node.clock.get_time()
+
+            # Calculate time deviation BEFORE correction
             time_deviation = local_time - gm_time
 
             # Record the deviation
-            self.node.record_time_deviation(perfect_time, time_deviation)
+            if abs(time_deviation) > 0:  # Only record if there's an actual deviation
+                self.node.record_time_deviation(perfect_time, time_deviation)
 
             # Correct local clock
             self.node.clock.set_time(gm_time)
