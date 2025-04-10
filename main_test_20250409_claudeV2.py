@@ -495,7 +495,8 @@ def plot_time_deviations(results):
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
-    plt.savefig('time_deviations_over_time.png')
+    plt.show()
+    plt.savefig(r'time_deviations_over_time.png')
     plt.close()
 
 
