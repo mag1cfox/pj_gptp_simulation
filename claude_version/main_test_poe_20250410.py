@@ -419,6 +419,9 @@ class Port:
 
         events = []
 
+        # 调试输出，确认消息处理
+        print(f"Node {self.node.node_id} Port {self.port_number} received {message.message_type} at {perfect_time:.6f}")
+
         if message.message_type == MessageType.SYNC:
             new_events = self.process_sync(message, reception_time, perfect_time)
             if new_events:
@@ -478,13 +481,16 @@ class Port:
         if self.state == PortState.SLAVE:
             # If one-step mode (timestamp included in Sync)
             if not message.two_step_flag and message.origin_timestamp is not None:
-                # Record time before correction for statistics
+                # Calculate GM time based on message data
                 gm_time = message.origin_timestamp + message.correction_field + self.mean_path_delay
                 local_time = self.node.clock.get_time()
+
+                # Calculate time deviation BEFORE correction
                 time_deviation = local_time - gm_time
 
                 # Record the deviation
-                self.node.record_time_deviation(perfect_time, time_deviation)
+                if abs(time_deviation) > 0:  # Only record if there's an actual deviation
+                    self.node.record_time_deviation(perfect_time, time_deviation)
 
                 # Correct local clock
                 self.node.clock.set_time(gm_time)
