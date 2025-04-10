@@ -402,60 +402,45 @@ class Port:
         # Return event for scheduler
         return (arrival_time, self.peer_port, message)
 
-    def receive_message(self, message, perfect_time):
-        """
-        Process a received message.
-
-        Args:
-            message: The received message
-            perfect_time: Perfect time when the message is received
-
-        Returns:
-            List of new events triggered by this message reception
-        """
-        # Apply PHY jitter to reception time
-        jitter = random.uniform(0, self.max_phy_jitter)
-        reception_time = self.node.clock.get_time() + jitter
-
+    # 修改process_sync方法，确保记录同步数据
+    def process_sync(self, message, reception_time, perfect_time):
+        """Process a received Sync message."""
         events = []
 
-        # 调试输出，确认消息处理
-        print(f"Node {self.node.node_id} Port {self.port_number} received {message.message_type} at {perfect_time:.6f}")
+        # Update sync receipt time
+        self.last_sync_receipt_time = perfect_time
+        self.last_sync_sequence_id = message.sequence_id
 
-        if message.message_type == MessageType.SYNC:
-            new_events = self.process_sync(message, reception_time, perfect_time)
-            if new_events:
-                events.extend(new_events)
+        # If this is a slave port receiving from its master
+        if self.state == PortState.SLAVE:
+            # If one-step mode (timestamp included in Sync)
+            if not message.two_step_flag and message.origin_timestamp is not None:
+                # Calculate GM time based on message data
+                gm_time = message.origin_timestamp + message.correction_field + self.mean_path_delay
+                local_time = self.node.clock.get_time()
 
-        elif message.message_type == MessageType.FOLLOW_UP:
-            new_events = self.process_follow_up(message, reception_time, perfect_time)
-            if new_events:
-                events.extend(new_events)
+                # Calculate time deviation BEFORE correction
+                time_deviation = local_time - gm_time
 
-        elif message.message_type == MessageType.PDELAY_REQ:
-            new_events = self.process_pdelay_req(message, reception_time, perfect_time)
-            if new_events:
-                events.extend(new_events)
+                # Record the deviation
+                if abs(time_deviation) > 0:  # Only record if there's an actual deviation
+                    self.node.record_time_deviation(perfect_time, time_deviation)
 
-        elif message.message_type == MessageType.PDELAY_RESP:
-            new_events = self.process_pdelay_resp(message, reception_time, perfect_time)
-            if new_events:
-                events.extend(new_events)
+                # Correct local clock
+                self.node.clock.set_time(gm_time)
+                self.node.sync_receptions += 1
 
-        elif message.message_type == MessageType.PDELAY_RESP_FOLLOW_UP:
-            new_events = self.process_pdelay_resp_follow_up(message, reception_time, perfect_time)
-            if new_events:
-                events.extend(new_events)
+                # Forward sync to downstream ports if enabled
+                if self.node.sync_locked:
+                    new_events = self.node.forward_sync(message, perfect_time, reception_time)
+                    if new_events:
+                        events.extend(new_events)
 
-        elif message.message_type == MessageType.ANNOUNCE:
-            new_events = self.process_announce(message, reception_time, perfect_time)
-            if new_events:
-                events.extend(new_events)
-
-        elif message.message_type == MessageType.SIGNALING:
-            new_events = self.process_signaling(message, reception_time, perfect_time)
-            if new_events:
-                events.extend(new_events)
+            # If two-step mode, mark as waiting for Follow_Up
+            elif message.two_step_flag:
+                self.pending_follow_up = True
+                # Store sync receive time for later use with Follow_Up
+                self.sync_receive_time = reception_time
 
         return events
 
