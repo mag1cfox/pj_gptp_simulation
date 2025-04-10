@@ -4,7 +4,7 @@
 *  @Time    ：   2025/4/9 10:11
 *  @Project :   pj_gptp_simulation
 *  @Description :   IEEE 802.1AS 时间同步仿真 based on Gutierrez et al. paper
-*  @FileName:   two_step.py
+*  @FileName:   ieee8021as_simulation.py
 **************************************
 """
 
@@ -15,6 +15,7 @@
 - 绘制时间偏差曲线图
 - 完整消息集: Sync, Follow_Up, Announce, Signaling
 - 支持两步法同步模式
+- 导出数据到CSV文件
 """
 
 import numpy as np
@@ -24,6 +25,10 @@ import random
 import enum
 import time
 import sys
+import csv
+import os
+import pandas as pd
+from collections import defaultdict
 
 # 是否启用调试输出
 DEBUG_ENABLED = True
@@ -1355,7 +1360,7 @@ def plot_time_deviations(results):
             time_series = results["node_deviations_time_series"][node_id]
             times = [t for t, _ in time_series]
             deviations = [d * 1e6 for _, d in time_series]  # 转换为微秒
-            plt.plot(times[10:600], deviations, label=f'节点 {node_id}')
+            plt.plot(times[10:], deviations, label=f'节点 {node_id}')
 
     plt.xlabel('仿真时间 (秒)')
     plt.ylabel('时间偏差 (µs)')
@@ -1365,6 +1370,101 @@ def plot_time_deviations(results):
     plt.tight_layout()
     plt.savefig('time_deviations_over_time.png')
     plt.show()
+
+
+def save_results_to_csv(results, filename="time_deviations.csv"):
+    """
+    将仿真结果保存到CSV文件中，每一列代表一个节点的时间误差数据
+
+    参数:
+        results: 仿真结果
+        filename: CSV文件名
+    """
+    # 创建一个字典，为每个节点存储时间和偏差
+    data_dict = defaultdict(list)
+
+    # 记录所有可能的时间点
+    all_times = set()
+
+    # 收集所有节点的数据
+    for node_id, time_series in results["node_deviations_time_series"].items():
+        for perfect_time, deviation in time_series:
+            # 将偏差转换为微秒
+            deviation_us = deviation * 1e6
+            data_dict[f"node_{node_id}_time"].append(perfect_time)
+            data_dict[f"node_{node_id}_deviation"].append(deviation_us)
+            all_times.add(perfect_time)
+
+    # 将数据转换为pandas DataFrame以便于处理
+    df = pd.DataFrame()
+
+    # 选择要导出的监控节点（10, 25, 50, 75, 100）
+    monitored_nodes=[]
+    for i in range(1,100):
+        monitored_nodes.append(i)
+    # monitored_nodes = [1,10, 25, 50, 75, 100]
+
+    # 准备数据，按照监控节点创建DataFrame
+    for node_id in monitored_nodes:
+        if f"node_{node_id}_time" in data_dict:
+            # 创建该节点的时间和偏差数据的DataFrame
+            node_df = pd.DataFrame({
+                'time': data_dict[f"node_{node_id}_time"],
+                f'node_{node_id}': data_dict[f"node_{node_id}_deviation"]
+            })
+
+            # 如果是第一个节点，直接赋值给df
+            if df.empty:
+                df = node_df
+            else:
+                # 否则，基于时间列合并
+                df = pd.merge(df, node_df, on='time', how='outer')
+
+    # 确保时间列是排序的
+    if not df.empty:
+        df = df.sort_values('time')
+
+        # 保存到CSV文件
+        df.to_csv(filename, index=False)
+        print(f"已将时间偏差数据保存到: {filename}")
+
+
+def create_aligned_time_series_csv(results, filename="aligned_time_deviations.csv"):
+    """
+    创建时间对齐的时间序列数据并保存到CSV，每一列代表一个节点的时间误差数据
+
+    参数:
+        results: 仿真结果
+        filename: CSV文件名
+    """
+    # 选择要导出的监控节点（10, 25, 50, 75, 100）
+    monitored_nodes = [1,10, 25, 50, 75, 100]
+
+    # 为每个节点创建一个字典，将时间映射到偏差
+    node_data = {}
+    for node_id in monitored_nodes:
+        if node_id in results["node_deviations_time_series"]:
+            node_data[node_id] = {time: dev * 1e6 for time, dev in results["node_deviations_time_series"][node_id]}
+
+    # 创建一个所有时间点的集合
+    all_times = set()
+    for data in node_data.values():
+        all_times.update(data.keys())
+
+    # 按时间排序
+    all_times = sorted(all_times)
+
+    # 创建数据表
+    data_table = {'time': all_times}
+    for node_id in monitored_nodes:
+        if node_id in node_data:
+            # 为每个节点添加一列偏差数据
+            data_table[f'node_{node_id}'] = [node_data[node_id].get(t, float('nan')) for t in all_times]
+
+    # 创建DataFrame并保存到CSV
+    df = pd.DataFrame(data_table)
+    df.to_csv(filename, index=False)
+    print(f"已将对齐的时间偏差数据保存到: {filename}")
 
 
 if __name__ == "__main__":
@@ -1381,7 +1481,7 @@ if __name__ == "__main__":
 
     # 运行两步法仿真
     print("\n开始两步法仿真...")
-    sim = IEEE8021ASSimulation(num_nodes=100, simulation_time=600.0)
+    sim = IEEE8021ASSimulation(num_nodes=100, simulation_time=70.0)
     results = sim.run()
 
     # 检查数据
@@ -1405,6 +1505,9 @@ if __name__ == "__main__":
             sync_prob = analysis["sync_probabilities"][node]
             print(f"节点 {node}: 最大偏差 = {max_dev * 1e6:.3f} µs, "
                   f"同步概率 (1 µs) = {sync_prob:.2%}")
+
+    # 保存结果到CSV文件
+    create_aligned_time_series_csv(results, "gptp_time_deviations.csv")
 
     # 只有当数据点足够时才绘图
     if data_count > 0:
