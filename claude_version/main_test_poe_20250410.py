@@ -813,7 +813,7 @@ class Port:
         # Send the announce
         return self.send_message(announce_message, perfect_time)
 
-
+# 在TimeAwareSystem类的初始化中添加初始时钟偏差：
 class TimeAwareSystem:
     """Implementation of a time-aware system in the IEEE 802.1AS network."""
 
@@ -834,7 +834,11 @@ class TimeAwareSystem:
         """
         self.node_id = node_id
         self.is_grandmaster = is_grandmaster
-        self.clock = Clock()
+        # Initialize clock with drift and possible initial offset (except for GM)
+        if is_grandmaster:
+            self.clock = Clock(initial_time=0.0, initial_drift_rate=0.0)
+        else:
+            self.clock = Clock()  # Random initial offset and drift
         self.clock_identity = ClockIdentity(node_id)
         self.max_phy_jitter = phy_jitter_ns * 1e-9  # Maximum PHY jitter in seconds
 
