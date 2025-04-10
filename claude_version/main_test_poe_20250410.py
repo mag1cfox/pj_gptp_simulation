@@ -92,29 +92,36 @@ class ClockQuality:
 
         return self.offset_scaled_log_variance < other.offset_scaled_log_variance
 
-
+# 修改Clock类以确保初始时钟偏差足够大，以便观察同步过程：
 class Clock:
     """Model of a clock with drift and granularity."""
 
-    def __init__(self, initial_drift_rate=None, max_drift_ppm=10, granularity_ns=8):
+    def __init__(self, initial_time=None, initial_drift_rate=None, max_drift_ppm=50, granularity_ns=8):
         """
         Initialize a clock with drift.
 
         Args:
+            initial_time: Initial time value (None for zero)
             initial_drift_rate: Initial drift rate in ppm, or None for random
             max_drift_ppm: Maximum drift rate in ppm
             granularity_ns: Clock granularity in nanoseconds
         """
+        # Set initial time with possible offset
+        if initial_time is None:
+            # Add random initial offset between -100µs and +100µs
+            self.local_time = random.uniform(-100e-6, 100e-6)
+        else:
+            self.local_time = initial_time
+
         if initial_drift_rate is None:
             # Random drift between -max_drift_ppm and max_drift_ppm ppm
             self.drift_rate = random.uniform(-max_drift_ppm, max_drift_ppm) * 1e-6
         else:
             self.drift_rate = initial_drift_rate * 1e-6
 
-        self.drift_change_rate = 0  # Rate of change of drift rate
+        self.drift_change_rate = random.uniform(-0.5, 0.5) * 1e-9  # Small drift change over time
         self.max_drift_change_ppm_per_s = 1  # Maximum 1 ppm/s change in drift rate
         self.granularity = granularity_ns * 1e-9  # Clock granularity in seconds
-        self.local_time = 0.0
 
     def update(self, elapsed_perfect_time):
         """
