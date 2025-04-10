@@ -460,18 +460,9 @@ class Port:
 
         return events
 
+    # 修改process_sync方法，确保记录同步数据
     def process_sync(self, message, reception_time, perfect_time):
-        """
-        Process a received Sync message.
-
-        Args:
-            message: The Sync message
-            reception_time: Local time when message was received
-            perfect_time: Perfect time when message was received
-
-        Returns:
-            List of new events triggered by this message reception
-        """
+        """Process a received Sync message."""
         events = []
 
         # Update sync receipt time
@@ -482,13 +473,16 @@ class Port:
         if self.state == PortState.SLAVE:
             # If one-step mode (timestamp included in Sync)
             if not message.two_step_flag and message.origin_timestamp is not None:
-                # Record time before correction for statistics
+                # Calculate GM time based on message data
                 gm_time = message.origin_timestamp + message.correction_field + self.mean_path_delay
                 local_time = self.node.clock.get_time()
+
+                # Calculate time deviation BEFORE correction
                 time_deviation = local_time - gm_time
 
                 # Record the deviation
-                self.node.record_time_deviation(perfect_time, time_deviation)
+                if abs(time_deviation) > 0:  # Only record if there's an actual deviation
+                    self.node.record_time_deviation(perfect_time, time_deviation)
 
                 # Correct local clock
                 self.node.clock.set_time(gm_time)
