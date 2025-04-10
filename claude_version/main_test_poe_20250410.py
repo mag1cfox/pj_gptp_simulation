@@ -1505,17 +1505,41 @@ def compare_sync_modes(one_step_results, two_step_results):
     plt.savefig('one_step_vs_two_step.png')
     plt.show()
 
-
+# 在主程序执行部分添加一些调试输出，并修改仿真时间以便更快看到结果：
 if __name__ == "__main__":
     print("Running IEEE 802.1AS simulation with complete message set and two-step sync...")
 
+    # Run shorter simulation first for debugging
+    debug_sim_time = 60.0  # 1 minute simulation for debugging
+
     # Run simulation with two-step sync (default)
-    two_step_sim = IEEE8021ASSimulation(num_nodes=101, simulation_time=600.0, two_step_sync=True)
+    two_step_sim = IEEE8021ASSimulation(num_nodes=101, simulation_time=debug_sim_time, two_step_sync=True)
+    print("Starting two-step simulation...")
     two_step_results = two_step_sim.run()
 
+    # Check if we have data
+    data_count = sum(len(deviations) for deviations in two_step_results["node_deviations"].values())
+    print(f"Collected {data_count} data points for two-step simulation")
+
     # Run simulation with one-step sync
-    one_step_sim = IEEE8021ASSimulation(num_nodes=101, simulation_time=600.0, two_step_sync=False)
+    one_step_sim = IEEE8021ASSimulation(num_nodes=101, simulation_time=debug_sim_time, two_step_sync=False)
+    print("Starting one-step simulation...")
     one_step_results = one_step_sim.run()
+
+    # Check if we have data
+    data_count = sum(len(deviations) for deviations in one_step_results["node_deviations"].values())
+    print(f"Collected {data_count} data points for one-step simulation")
+
+    # Only run full simulation if debug run was successful
+    if data_count > 0:
+        print("Debug run successful, running full simulation...")
+
+        # Run full simulations
+        two_step_sim = IEEE8021ASSimulation(num_nodes=101, simulation_time=600.0, two_step_sync=True)
+        two_step_results = two_step_sim.run()
+
+        one_step_sim = IEEE8021ASSimulation(num_nodes=101, simulation_time=600.0, two_step_sync=False)
+        one_step_results = one_step_sim.run()
 
     # Analyze results
     two_step_analysis = analyze_sync_precision(two_step_results)
