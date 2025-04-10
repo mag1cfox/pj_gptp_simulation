@@ -11,8 +11,8 @@
 """
 增强版 IEEE 802.1AS 时间同步仿真
 - 运行时间: 600 秒
-- 监控节点: 10, 25, 50, 75, 100
-- 绘制时间偏差曲线图
+- 输出全部节点数据
+- 从第5秒开始绘制时间偏差曲线图
 - 完整消息集: Sync, Follow_Up, Announce, Signaling
 - 支持两步法同步模式
 - 导出数据到CSV文件
@@ -1047,7 +1047,7 @@ class TimeAwareSystem:
 class IEEE8021ASSimulation:
     """具有完整消息集的IEEE 802.1AS网络仿真"""
 
-    def __init__(self, num_nodes=100, simulation_time=600.0):
+    def __init__(self, num_nodes=100, simulation_time=65.0):
         """
         初始化仿真
 
@@ -1276,30 +1276,29 @@ class IEEE8021ASSimulation:
         for i, node in enumerate(self.nodes):
             debug_print(f"节点{i}: 同步接收={node.sync_receptions}, 时间偏差记录={len(node.time_deviations)}")
 
-        # 收集每个节点的时间偏差
-        monitored_nodes = [10, 25, 50, 75, 100]
-        debug_print("\n收集监控节点的数据:")
+        # 收集所有节点的时间偏差数据（除GM外）
+        debug_print("\n收集所有节点的数据:")
 
         for i, node in enumerate(self.nodes):
-            if i > 0 and i in monitored_nodes:  # 仅收集监控节点的数据
+            if i > 0:  # 排除GM节点
                 deviations = [dev for _, dev in node.time_deviations]
                 results["node_deviations"][i] = deviations
                 # 存储时间序列数据
                 results["node_deviations_time_series"][i] = node.time_deviations
                 results["sync_receptions"].append(node.sync_receptions)
 
-                debug_print(f"监控节点{i}: 收集了{len(deviations)}条偏差记录")
-                if deviations:
+                debug_print(f"节点{i}: 收集了{len(deviations)}条偏差记录")
+                if deviations and i % 10 == 0:  # 每10个节点显示一次样本
                     debug_print(f"  偏差样本(µs): {[d * 1e6 for d in deviations[:5]]}")
 
         # 收集传播延迟
-        for i in monitored_nodes:
-            if i < self.num_nodes:
-                for port in self.nodes[i].ports:
-                    if port.state == PortState.SLAVE:
-                        results["propagation_delays"].append(port.mean_path_delay)
+        for i in range(1, self.num_nodes):  # 排除GM节点
+            for port in self.nodes[i].ports:
+                if port.state == PortState.SLAVE:
+                    results["propagation_delays"].append(port.mean_path_delay)
+                    if i % 10 == 0:  # 每10个节点显示一次延迟
                         debug_print(f"节点{i}路径延迟: {port.mean_path_delay * 1e9:.2f} ns")
-                        break
+                    break
 
         return results
 
@@ -1342,109 +1341,54 @@ def analyze_sync_precision(results, threshold_us=1.0):
     return analysis
 
 
-def plot_time_deviations(results):
+def plot_time_deviations(results, start_time=5.0):
     """
-    绘制指定节点随时间的时间偏差
+    绘制指定节点随时间的时间偏差，从指定时间开始绘制
 
     参数:
         results: 包含时间序列数据的仿真结果
+        start_time: 开始绘制的时间点（秒）
     """
     plt.figure(figsize=(12, 8))
 
     # 选择要绘制的节点（10, 25, 50, 75, 100）
     nodes_to_plot = [10, 25, 50, 75, 100]
 
-    # 为每个节点绘制时间偏差
+    # 为每个节点绘制时间偏差，从start_time秒开始
     for node_id in nodes_to_plot:
         if node_id in results["node_deviations_time_series"]:
             time_series = results["node_deviations_time_series"][node_id]
-            times = [t for t, _ in time_series]
-            deviations = [d * 1e6 for _, d in time_series]  # 转换为微秒
-            plt.plot(times[10:], deviations, label=f'节点 {node_id}')
+            # 过滤仅选择起始时间之后的数据点
+            filtered_time_series = [(t, d) for t, d in time_series if t >= start_time]
+
+            if filtered_time_series:
+                times = [t for t, _ in filtered_time_series]
+                deviations = [d * 1e6 for _, d in filtered_time_series]  # 转换为微秒
+                plt.plot(times, deviations, label=f'节点 {node_id}')
 
     plt.xlabel('仿真时间 (秒)')
     plt.ylabel('时间偏差 (µs)')
-    plt.title('各节点相对于主时钟的时间偏差')
+    plt.title(f'从 {start_time} 秒开始的各节点相对于主时钟的时间偏差')
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
-    plt.savefig('time_deviations_over_time.png')
+    plt.savefig('time_deviations_from_5s.png')
     plt.show()
-
-
-def save_results_to_csv(results, filename="time_deviations.csv"):
-    """
-    将仿真结果保存到CSV文件中，每一列代表一个节点的时间误差数据
-
-    参数:
-        results: 仿真结果
-        filename: CSV文件名
-    """
-    # 创建一个字典，为每个节点存储时间和偏差
-    data_dict = defaultdict(list)
-
-    # 记录所有可能的时间点
-    all_times = set()
-
-    # 收集所有节点的数据
-    for node_id, time_series in results["node_deviations_time_series"].items():
-        for perfect_time, deviation in time_series:
-            # 将偏差转换为微秒
-            deviation_us = deviation * 1e6
-            data_dict[f"node_{node_id}_time"].append(perfect_time)
-            data_dict[f"node_{node_id}_deviation"].append(deviation_us)
-            all_times.add(perfect_time)
-
-    # 将数据转换为pandas DataFrame以便于处理
-    df = pd.DataFrame()
-
-    # 选择要导出的监控节点（10, 25, 50, 75, 100）
-    monitored_nodes=[]
-    for i in range(1,100):
-        monitored_nodes.append(i)
-    # monitored_nodes = [1,10, 25, 50, 75, 100]
-
-    # 准备数据，按照监控节点创建DataFrame
-    for node_id in monitored_nodes:
-        if f"node_{node_id}_time" in data_dict:
-            # 创建该节点的时间和偏差数据的DataFrame
-            node_df = pd.DataFrame({
-                'time': data_dict[f"node_{node_id}_time"],
-                f'node_{node_id}': data_dict[f"node_{node_id}_deviation"]
-            })
-
-            # 如果是第一个节点，直接赋值给df
-            if df.empty:
-                df = node_df
-            else:
-                # 否则，基于时间列合并
-                df = pd.merge(df, node_df, on='time', how='outer')
-
-    # 确保时间列是排序的
-    if not df.empty:
-        df = df.sort_values('time')
-
-        # 保存到CSV文件
-        df.to_csv(filename, index=False)
-        print(f"已将时间偏差数据保存到: {filename}")
 
 
 def create_aligned_time_series_csv(results, filename="aligned_time_deviations.csv"):
     """
-    创建时间对齐的时间序列数据并保存到CSV，每一列代表一个节点的时间误差数据
+    创建时间对齐的时间序列数据并保存到CSV，包含全部节点的时间误差数据
 
     参数:
         results: 仿真结果
         filename: CSV文件名
     """
-    # 选择要导出的监控节点（10, 25, 50, 75, 100）
-    monitored_nodes = [1,10, 25, 50, 75, 100]
-
     # 为每个节点创建一个字典，将时间映射到偏差
     node_data = {}
-    for node_id in monitored_nodes:
-        if node_id in results["node_deviations_time_series"]:
-            node_data[node_id] = {time: dev * 1e6 for time, dev in results["node_deviations_time_series"][node_id]}
+    for node_id, time_series in results["node_deviations_time_series"].items():
+        if node_id > 0:  # 排除GM节点
+            node_data[node_id] = {time: dev * 1e6 for time, dev in time_series}
 
     # 创建一个所有时间点的集合
     all_times = set()
@@ -1456,15 +1400,14 @@ def create_aligned_time_series_csv(results, filename="aligned_time_deviations.cs
 
     # 创建数据表
     data_table = {'time': all_times}
-    for node_id in monitored_nodes:
-        if node_id in node_data:
-            # 为每个节点添加一列偏差数据
-            data_table[f'node_{node_id}'] = [node_data[node_id].get(t, float('nan')) for t in all_times]
+    for node_id in node_data.keys():
+        # 为每个节点添加一列偏差数据
+        data_table[f'node_{node_id}'] = [node_data[node_id].get(t, float('nan')) for t in all_times]
 
     # 创建DataFrame并保存到CSV
     df = pd.DataFrame(data_table)
     df.to_csv(filename, index=False)
-    print(f"已将对齐的时间偏差数据保存到: {filename}")
+    print(f"已将所有节点的时间偏差数据保存到: {filename}")
 
 
 if __name__ == "__main__":
@@ -1477,11 +1420,12 @@ if __name__ == "__main__":
     print("配置:")
     print(f"- 仿真时间: 600秒")
     print(f"- 节点数量: 101")
-    print(f"- 监控节点: 10, 25, 50, 75, 100")
+    print(f"- 记录全部节点数据")
+    print(f"- 从第5秒开始绘制图表")
 
     # 运行两步法仿真
     print("\n开始两步法仿真...")
-    sim = IEEE8021ASSimulation(num_nodes=100, simulation_time=70.0)
+    sim = IEEE8021ASSimulation(num_nodes=100, simulation_time=65.0)
     results = sim.run()
 
     # 检查数据
@@ -1506,12 +1450,12 @@ if __name__ == "__main__":
             print(f"节点 {node}: 最大偏差 = {max_dev * 1e6:.3f} µs, "
                   f"同步概率 (1 µs) = {sync_prob:.2%}")
 
-    # 保存结果到CSV文件
-    create_aligned_time_series_csv(results, "gptp_time_deviations.csv")
+    # 保存结果到CSV文件 - 包含全部节点数据
+    create_aligned_time_series_csv(results, "gptp_time_deviations_all_nodes.csv")
 
     # 只有当数据点足够时才绘图
     if data_count > 0:
-        print("\n绘制时间偏差图...")
-        plot_time_deviations(results)
+        print("\n绘制时间偏差图（从5秒开始）...")
+        plot_time_deviations(results, start_time=5.0)
     else:
         print("\n警告: 绘图所需数据点不足!")
