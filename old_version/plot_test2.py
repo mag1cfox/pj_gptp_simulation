@@ -11,7 +11,7 @@ if not os.path.exists('pic'):
     os.makedirs('pic')
 
 # 读取CSV文件，假设文件名为 'data.csv'
-df = pd.read_csv(r'D:\06_engineering\03_analysis\pj_gptp_simulation\.vscode\data1.csv', header=None)
+df = pd.read_csv(r'/.vscode/data1.csv', header=None)
 
 # 设置全局字体大小
 plt.rcParams.update({'font.size': 18})

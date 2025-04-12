@@ -14,7 +14,7 @@ import numpy as np
 import os
 
 # 设置CSV文件路径（请修改为您的实际路径）
-csv_path = r"D:\06_engineering\03_analysis\pj_gptp_simulation\plot\data\maxTE.csv"  # 可以是相对路径或绝对路径
+csv_path = r"/old_version/plot/data/maxTE.csv"  # 可以是相对路径或绝对路径
 
 # 检查文件是否存在
 if not os.path.exists(csv_path):

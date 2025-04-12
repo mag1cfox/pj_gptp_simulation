@@ -56,6 +56,6 @@ def process_csv_columns(input_file, output_file, columns_to_process):
 columns_to_process = [9, 24, 49, 74, 99]  # 对应CSV中的第10、25、50、75、100列
 
 # 调用函数处理数据
-input_file = r"D:\06_engineering\03_analysis\pj_gptp_simulation\data2.csv"  # 替换为您的CSV文件路径
+input_file = r"/old_version/data2.csv"  # 替换为您的CSV文件路径
 output_file = "statistics_results3.csv"  # 输出的CSV文件名
 process_csv_columns(input_file, output_file, columns_to_process)

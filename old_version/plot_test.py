@@ -35,7 +35,7 @@ if __name__ == '__main__':
 
     # 使用示例
     # file_path = r'D:\06_engineering\03_analysis\pj_gptp_simulation\.vscode\data5.csv'  # 替换为你的CSV文件路径
-    file_path = r'D:\06_engineering\03_analysis\pj_gptp_simulation\data5.csv'  # 替换为你的CSV文件路径
+    file_path = r'/old_version/data5.csv'  # 替换为你的CSV文件路径
     column_index = 0  # 第10列的索引是9
     # column_data = read_column_from_csv(file_path, column_index)
 
