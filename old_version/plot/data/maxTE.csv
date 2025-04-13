@@ -1,6 +1,6 @@
-hops,interval=31.25ms,interval=125ms,interval=1s
+hops,Synchronization interval=31.25ms,Synchronization interval=125ms,Synchronization interval=1s
 10,0.543,1.327,1.116
-25,1.197,1.568,3.858
-50,2.331,2.908,2.396
+25,1.197,1.568,2.858
+50,2.331,2.396,2.908
 75,3.783,4.299,3.617
 100,5.083,5.426,14.706

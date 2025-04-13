@@ -14,7 +14,7 @@ import numpy as np
 import os
 
 # 设置CSV文件路径（请修改为您的实际路径）
-csv_path = r"/old_version/plot/data/maxTE.csv"  # 可以是相对路径或绝对路径
+csv_path = r"D:\06_engineering\03_analysis\pj_gptp_simulation\old_version\plot\data\maxTE.csv"  # 可以是相对路径或绝对路径
 
 # 检查文件是否存在
 if not os.path.exists(csv_path):
@@ -31,11 +31,19 @@ required_columns = ['hops', 'interval=31.25ms', 'interval=125ms', 'interval=1s']
 if not all(col in df.columns for col in required_columns):
     raise ValueError("CSV文件列名不符合要求，请确保包含: hops, interval=31.25ms, interval=125ms, interval=1s")
 
-# 使用您提供的配色方案
-colors = ['#24a645', '#f27830', '#8768a6']  # 选择前3种颜色对应3个interval
+# 使用您提供的配色方案 [053,078,151], [223,091,063], [245,180,111]
+# 将RGB转换为十六进制颜色码
+colors = ['#354e97', '#df5b3f', '#f5b46f']  # 对应RGB(53,78,151), (223,91,63), (245,180,111)
+
+# 设置全局字体为Times New Roman
+plt.rcParams['font.family'] = 'Times New Roman'  # 全局字体设置
+plt.rcParams['mathtext.fontset'] = 'custom'  # 如果需要数学公式也使用Times New Roman
+plt.rcParams['mathtext.rm'] = 'Times New Roman'  # 数学公式常规字体
+plt.rcParams['mathtext.it'] = 'Times New Roman:italic'  # 数学公式斜体
+plt.rcParams['mathtext.bf'] = 'Times New Roman:bold'  # 数学公式粗体
 
 # 创建图表
-plt.figure(figsize=(10, 6), dpi=300)
+plt.figure(figsize=(10, 6), dpi=600)
 
 # 设置学术风格
 plt.rcParams['font.family'] = 'serif'
@@ -73,3 +81,4 @@ plt.savefig(output_path, dpi=300, bbox_inches='tight')
 print(f"图表已保存至: {output_path}")
 
 plt.show()
+
