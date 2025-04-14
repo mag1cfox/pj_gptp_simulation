@@ -1,0 +1,6 @@
+hops,Synchronization interval=31.25ms,Synchronization interval=125ms,Synchronization interval=1s
+10,0.660 ,2.454 ,19.748 
+25,0.811 ,2.454 ,19.532 
+50,1.254 ,2.859 ,18.368 
+75,1.900 ,3.641 ,20.003 
+100,2.815,3.808 ,20.208 

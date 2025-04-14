@@ -14,7 +14,7 @@ import os
 import math
 
 # Create the output directory
-os.makedirs("version/20250413/output_data", exist_ok=True)
+os.makedirs("output_data", exist_ok=True)
 
 # Parameters from the paper
 PHY_JITTER_MAX = 8e-9  # 8 ns
@@ -22,7 +22,7 @@ CLOCK_GRANULARITY = 8e-9  # 8 ns
 MAX_DRIFT_RATE = 10e-6  # 10 ppm
 NR_ERROR = 0.1e-6  # 0.1 ppm
 RESIDENCE_TIME_MAX = 1e-3  # 1 ms
-PROPAGATION_DELAY = 62e-9  # 62 ns
+PROPAGATION_DELAY = 25e-9  # 62 ns
 SYNC_INTERVAL = 31.25e-3  # 31.25 ms
 NUM_SAMPLES = 1000  # Samples per hop
 
@@ -72,7 +72,7 @@ for h in range(1, 101):
 
 # Save to CSV with each column representing one hop
 df = pd.DataFrame({hop: all_data[hop] for hop in range(1, 101)})
-df.to_csv("version/20250413/output_data/te_data.csv", index=False)
+df.to_csv("output_data/te_data_v3.csv", index=False)
 
 # Target hops for plotting
 target_hops = [1, 7, 10, 25, 50, 75, 100]
@@ -114,5 +114,5 @@ plt.xticks(fontname='Times New Roman', fontsize=20)
 plt.yticks(fontname='Times New Roman', fontsize=20)
 
 plt.tight_layout()
-plt.savefig("version/20250413/output_data/time_error_cdf.png", dpi=300)
+plt.savefig("time_error_cdf_v3.png", dpi=300)
 plt.show()
