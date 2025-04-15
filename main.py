@@ -22,8 +22,8 @@ CLOCK_GRANULARITY = 8e-9  # 8 ns
 MAX_DRIFT_RATE = 10e-6  # 10 ppm
 NR_ERROR = 0.1e-6  # 0.1 ppm
 RESIDENCE_TIME_MAX = 1e-3  # 1 ms
-PROPAGATION_DELAY = 25e-9  # 62 ns
-SYNC_INTERVAL = 31.25e-3  # 31.25 ms
+PROPAGATION_DELAY = 62e-9  # 62 ns
+SYNC_INTERVAL = 125.0e-3  # 125 ms
 NUM_SAMPLES = 1000  # Samples per hop
 
 
@@ -72,10 +72,11 @@ for h in range(1, 101):
 
 # Save to CSV with each column representing one hop
 df = pd.DataFrame({hop: all_data[hop] for hop in range(1, 101)})
-df.to_csv("output_data/te_data_v3.csv", index=False)
+df.to_csv("output_data/te_data_125ms.csv", index=False)
 
 # Target hops for plotting
-target_hops = [1, 7, 10, 25, 50, 75, 100]
+# target_hops = [1, 7, 10, 25, 50, 75, 100]
+target_hops = [100, 75, 50, 25, 10, 7, 1]
 colors = {
     '1': '#E41A1C',  # 深红
     '2': '#377EB8',  # 深蓝
@@ -105,14 +106,14 @@ for i, hop in enumerate(target_hops):
 
 # Configure plot appearance
 plt.grid(True)
-plt.xlabel('Time Error (μs)', fontname='Times New Roman', fontsize=20)
-plt.ylabel('Cumulative Probability', fontname='Times New Roman', fontsize=20)
-plt.title('IEEE 802.1AS Time Synchronization Error', fontname='Times New Roman', fontsize=20)
-plt.legend(fontsize=20, prop={'family': 'Times New Roman'})
+plt.xlabel('Time Error (μs)', fontname='Times New Roman', fontsize=20, fontweight='bold')
+plt.ylabel('CDF', fontname='Times New Roman', fontsize=20, fontweight='bold')
+
+plt.legend(fontsize=20, frameon=True, shadow=False, edgecolor='black',prop={'family': 'Times New Roman'})
 
 plt.xticks(fontname='Times New Roman', fontsize=20)
 plt.yticks(fontname='Times New Roman', fontsize=20)
 
 plt.tight_layout()
-plt.savefig("time_error_cdf_v3.png", dpi=300)
+plt.savefig("output_image/time_error_cdf_125ms.png", dpi=600)
 plt.show()
