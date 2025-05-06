@@ -1,13 +1,21 @@
 """
 **************************************
 *  @Author  ：   mag1cfox
-*  @Time    ：   2025/5/6 17:39
+*  @Time    ：   2025/5/7 3:08
 *  @Project :   pj_gptp_simulation
-*  @Description :   对main_test_20250429_domain_aware.py进行修改，使仿真数据更合理
-*  @FileName:   main_test_20250506.py
+*  @Description :   Description
+*  @FileName:   mainV3.py
 **************************************
 """
-
+"""
+**************************************
+*  @Author  ：   mag1cfox
+*  @Time    ：   2025/4/29 11:38
+*  @Project :   pj_gptp_simulation
+*  @Description :   计算时间感知域划分网络的时间误差
+*  @FileName:   main_test_20250429_domain_aware.py
+**************************************
+"""
 
 # Time Synchronization Simulation for IEEE 802.1AS in IEC/IEEE 60802
 # Extended with Time-Aware Domain Partitioning Support
@@ -88,7 +96,7 @@ class SimulationParameters:
     dtse_rx: float = 4.0  # RX动态时间戳误差（±ns）, 全局默认值
 
     # 消息间隔
-    pdelay_interval: float = 1000.0  # pDelay消息间隔（ms）, 全局默认值
+    pdelay_interval: float = 125.0  # pDelay消息间隔（ms）, 全局默认值
     sync_interval: float = 125.0  # 同步消息间隔（ms）, 全局默认值
     pdelay_turnaround: float = 10.0  # pDelay响应时间（ms）, 全局默认值
     residence_time: float = 10.0  # 节点内驻留时间（ms）, 全局默认值
@@ -194,7 +202,7 @@ class TimeSyncSimulation:
             }
 
         # 创建输出目录
-        self.output_data_dir = 'output_data_test'
+        self.output_data_dir = 'output_data'
         os.makedirs(self.output_data_dir, exist_ok=True)
 
     def _validate_domain_config(self):
@@ -397,23 +405,6 @@ class TimeSyncSimulation:
                 hop].mnrr_error + rr_error_cd_nrr2sync + rr_error_cd_rr2sync
             nodes[hop].rr_error_sum = nodes[hop].rr_error
 
-            # 修改: 对大跳数实施基于学术论文的修正模型
-            # 参考《Synchronization Quality of IEEE 802.1AS in Large-Scale Industrial Automation Networks》
-            if hop > 7:
-                # 跳数增加时误差传播特性的修正
-                # 对较大跳数使用非线性增长模型来修正误差传播
-                correction_factor = 1.0
-                if hop > 32:
-                    # 大规模网络中误差积累速率有所减缓的现象
-                    # 采用开平方根函数对跳数进行缩放，使得误差增长更符合实际观测
-                    correction_factor = np.sqrt(hop / 32) * 0.85
-                elif hop > 16:
-                    correction_factor = 0.92
-                elif hop > 7:
-                    correction_factor = 0.96
-
-                nodes[hop].rr_error *= correction_factor
-
         # 真实的链路传播时延(ns)
         true_link_delay = nodes[hop].link_delay
 
@@ -433,22 +424,6 @@ class TimeSyncSimulation:
         pdelay_error_nrr = -domain_params.pdelay_turnaround * nodes[hop].mnrr_error / 2
         pdelay_error_nrr *= (1.0 - domain_params.mean_link_delay_correction)
 
-        # 对大跳数应用误差修正
-        if hop > 7:
-            # 在较大跳数时链路延迟测量误差的修正
-            # 大规模网络中，探测累积误差通常会随着测量次数增加而收敛
-            dampening_factor = 1.0
-            if hop > 25:
-                # 大跳数下的误差收敛效应
-                dampening_factor = 0.85 + (0.15 * 25 / hop)
-            elif hop > 15:
-                dampening_factor = 0.92
-            elif hop > 7:
-                dampening_factor = 0.96
-
-            pdelay_error_ts *= dampening_factor
-            pdelay_error_nrr *= dampening_factor
-
         nodes[hop].mean_link_delay_error = pdelay_error_ts + pdelay_error_nrr
 
         # 计算住留时间误差
@@ -457,15 +432,6 @@ class TimeSyncSimulation:
         rt_error_cd_direct = (domain_params.residence_time ** 2 * (
                 nodes[hop].clock_drift - nodes[0].clock_drift) / (2 * 1000)) * (
                                      1.0 - domain_params.rr_drift_correction)
-
-        # 对大跳数应用住留时间误差修正
-        if hop > 15:
-            # 大跳数下的住留时间误差修正
-            # 基于实际测量，大型网络中误差增长曲线趋向平缓
-            k = min(1.0, (100 - hop) / 85 + 0.15)  # 随跳数增加呈现非线性衰减
-            rt_error_ts_direct *= k
-            rt_error_rr *= k
-            rt_error_cd_direct *= k
 
         nodes[hop].residence_time_error = rt_error_ts_direct + rt_error_rr + rt_error_cd_direct
 
@@ -511,62 +477,7 @@ class TimeSyncSimulation:
                     self.calculate_errors(nodes, hop, domain_params)
 
                     # 计算总时间误差
-                    original_error_increment = nodes[hop].mean_link_delay_error + nodes[hop].residence_time_error
-
-                    # 为满足特定跳数误差要求的修正
-                    if hop <= 7:
-                        # 1-7跳保持原样（确保不超过100ns）
-                        adjusted_increment = original_error_increment
-                        # 极端情况下进行轻微调整，确保7跳处不超过100ns
-                        if hop == 7 and (te + adjusted_increment) > 100:
-                            adjusted_increment = min(adjusted_increment, 100 - te)
-
-                    elif hop <= 32:
-                        # 7-32跳，线性调整以确保32跳时不超过200ns
-                        if hop == 32:
-                            # 确保32跳时累积误差不超过200ns
-                            target_te = 200
-                            if te + original_error_increment > target_te:
-                                adjusted_increment = max(0, target_te - te)
-                            else:
-                                adjusted_increment = original_error_increment
-                        else:
-                            # 7-31跳区间的平滑过渡
-                            progress = (hop - 7) / (32 - 7)
-                            max_allowed = 100 + progress * (200 - 100)  # 从100ns平滑过渡到200ns
-
-                            if te + original_error_increment > max_allowed:
-                                adjusted_increment = max(0, max_allowed - te)
-                            else:
-                                # 对增量应用一个缩放因子，使误差增长更平滑
-                                scaling_factor = 0.9 + 0.1 * progress  # 从0.9逐渐增加到1.0
-                                adjusted_increment = original_error_increment * scaling_factor
-                    else:
-                        # 32-100跳，非线性调整确保100跳时达到目标值6000ns
-                        progress = (hop - 32) / (100 - 32)
-
-                        # 使用非线性函数（二次函数）构建增长曲线，使后期增长更快
-                        growth_factor = progress * progress * 2.5  # 非线性增长因子
-
-                        # 如果当前累积误差加上原始增量还不到目标轨迹，则保持原始增量
-                        target_trajectory = 200 + growth_factor * (6000 - 200)
-
-                        if te + original_error_increment < target_trajectory:
-                            # 增加一个额外的增长因子，使误差逐渐向目标轨迹靠近
-                            boost_factor = 1.0 + 0.5 * (
-                                        target_trajectory - (te + original_error_increment)) / target_trajectory
-                            adjusted_increment = original_error_increment * boost_factor
-
-                            # 确保单次增量不会过大
-                            max_single_increment = 150 + progress * 450  # 从150ns逐渐增加到600ns
-                            adjusted_increment = min(adjusted_increment, max_single_increment)
-                        else:
-                            # 如果已经接近或超过目标轨迹，则适当减缓增长
-                            damping_factor = 0.8 - 0.2 * progress  # 从0.8逐渐降低到0.6
-                            adjusted_increment = original_error_increment * damping_factor
-
-                    # 更新节点的时间误差
-                    nodes[hop].te = te + adjusted_increment
+                    nodes[hop].te = te + nodes[hop].mean_link_delay_error + nodes[hop].residence_time_error
 
                     # 如果需要考虑下一次同步消息的影响并且是指定跳或最后一跳
                     if self.params.consider_next_sync and (
@@ -575,27 +486,9 @@ class TimeSyncSimulation:
                         next_sync_time = domain_params.time_to_next_sync if domain_params.time_to_next_sync is not None else domain_params.sync_interval
 
                         # 计算到下一次同步到达之前积累的额外时钟漂移误差
-                        base_drift_error = (next_sync_time * (nodes[hop].clock_drift - nodes[0].clock_drift) / 1000)
-
-                        # 根据跳数调整额外漂移误差
-                        if hop <= 7:
-                            drift_factor = 1.0  # 小跳数保持原样
-                        elif hop <= 32:
-                            # 7-32跳线性调整
-                            progress = (hop - 7) / (32 - 7)
-                            drift_factor = 1.0 - 0.2 * progress  # 从1.0降至0.8
-                        else:
-                            # 32-100跳非线性调整
-                            progress = (hop - 32) / (100 - 32)
-                            drift_factor = 0.8 - 0.3 * progress * progress  # 从0.8非线性降至0.5
-
-                        adjusted_drift_error = base_drift_error * drift_factor
-
-                        # 特殊处理100跳，确保最终误差不超过6000ns
-                        if hop == 100 and (nodes[hop].te + adjusted_drift_error) > 6000:
-                            adjusted_drift_error = max(0, 6000 - nodes[hop].te)
-
-                        nodes[hop].te += adjusted_drift_error
+                        additional_drift_error = (
+                                next_sync_time * (nodes[hop].clock_drift - nodes[0].clock_drift) / 1000)
+                        nodes[hop].te += additional_drift_error
 
                 # 更新累积te
                 te = nodes[hop].te
@@ -638,7 +531,10 @@ class TimeSyncSimulation:
 
         df = pd.DataFrame(all_te_data)
 
-        # 保存到CSV文件，使用 self.params.output_filename
+        # 保存到CSV文件
+        df.to_csv(os.path.join(self.output_data_dir, 'te_all_hops.csv'), index=False)
+
+        # 保存到CSV文件
         output_path = os.path.join(self.output_data_dir, self.params.output_filename)
         df.to_csv(output_path, index=False)
         print(f"数据已保存到: {output_path}")
@@ -657,51 +553,6 @@ class TimeSyncSimulation:
         stats_path = os.path.join(self.output_data_dir, f"stats_{self.params.output_filename}")
         stats_df.to_csv(stats_path, index=False)
         print(f"统计数据已保存到: {stats_path}")
-
-        # 保存域统计数据
-        domain_stats = []
-        for domain_id in self.results['domain_metrics']:
-            domain_name = self.params.domains[domain_id].domain_name or f"Domain {domain_id}"
-            domain_stats.append({
-                'Domain_ID': domain_id,
-                'Domain_Name': domain_name,
-                'Max_TE': self.results['domain_metrics'][domain_id]['max_te'],
-                'Avg_TE': self.results['domain_metrics'][domain_id]['avg_te'],
-                'Std_TE': self.results['domain_metrics'][domain_id]['std_te'],
-                '7Sigma_TE': self.results['domain_metrics'][domain_id]['7sigma_te']
-            })
-        domain_stats_df = pd.DataFrame(domain_stats)
-        domain_stats_path = os.path.join(self.output_data_dir, f"domain_stats_{self.params.output_filename}")
-        domain_stats_df.to_csv(domain_stats_path, index=False)
-        print(f"域统计数据已保存到: {domain_stats_path}")
-
-        # 保存最大跳数（100跳）的详细统计数据
-        if 'max_hop_stats' in self.results:
-            max_hop_stats = self.results['max_hop_stats']
-            max_hop_df = pd.DataFrame({
-                'Run': range(1, len(max_hop_stats['all_values']) + 1),
-                'TE_Value': max_hop_stats['all_values']
-            })
-            max_hop_path = os.path.join(self.output_data_dir, f"max_hop_{self.params.output_filename}")
-            max_hop_df.to_csv(max_hop_path, index=False)
-            print(f"最大跳数数据已保存到: {max_hop_path}")
-
-            # 保存最大跳数统计摘要
-            summary_data = {
-                'Metric': ['Mean', 'Standard Deviation', 'Minimum', 'Maximum', 'Absolute Maximum', '7-Sigma'],
-                'Value': [
-                    max_hop_stats['mean'],
-                    max_hop_stats['std'],
-                    max_hop_stats['min'],
-                    max_hop_stats['max'],
-                    max_hop_stats['abs_max'],
-                    max_hop_stats['7sigma']
-                ]
-            }
-            summary_df = pd.DataFrame(summary_data)
-            summary_path = os.path.join(self.output_data_dir, f"max_hop_summary_{self.params.output_filename}")
-            summary_df.to_csv(summary_path, index=False)
-            print(f"最大跳数统计摘要已保存到: {summary_path}")
 
 
 def run_case1():
@@ -769,7 +620,7 @@ def run_case1():
 
 
 def run_case2():
-    """运行Case2: 子域长度为25，每个域的配置参数相同"""
+    """运行Case2: 子域长度为20，每个域的配置参数相同"""
     print("\n执行Case2: 子域长度为20的仿真...")
 
     # 设置仿真参数
@@ -835,12 +686,12 @@ def run_case2():
 def main():
     """主函数，依次运行两个案例"""
     # 确保输出目录存在
-    os.makedirs('output_data_test', exist_ok=True)
+    os.makedirs('output_data', exist_ok=True)
 
     # 运行Case1: 子域长度为10
     run_case1()
 
-    # 运行Case2: 子域长度为25
+    # 运行Case2: 子域长度为20
     run_case2()
 
     print("\n所有仿真完成！")
