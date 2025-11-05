@@ -231,7 +231,7 @@ class TimeSyncSimulation:
     def apply_domain_boundary_policy(self, nodes: List[NodeState], hop: int):
         """在域边界应用特定策略"""
         if self.params.inter_domain_policy == "boundary_clock":
-            reset_factor = 0.2  # 保留20%的误差
+            reset_factor = 1  # 保留20%的误差
             nodes[hop].te = nodes[hop - 1].te * reset_factor
             nodes[hop].boundary_role = "master"
             nodes[hop - 1].boundary_role = "slave"
